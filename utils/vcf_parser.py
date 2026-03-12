@@ -1,93 +1,99 @@
-import pysam
 import pandas as pd
+import io
 
 
 def load_vcf(vcf_file) -> pd.DataFrame:
-    """Load a VCF file (path or file-like object) into a pandas DataFrame.
-    Supports single-sample and multi-sample VCFs.
+    """Load a VCF file (path or Streamlit UploadedFile) into a DataFrame.
+    Pure-Python parser — no compiled dependencies required.
     """
-    import tempfile, os, shutil
-
     if hasattr(vcf_file, "read"):
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".vcf") as tmp:
-            shutil.copyfileobj(vcf_file, tmp)
-            vcf_path = tmp.name
-        cleanup = True
+        content = vcf_file.read()
+        if isinstance(content, bytes):
+            content = content.decode("utf-8")
+        lines = content.splitlines()
     else:
-        vcf_path = vcf_file
-        cleanup = False
+        with open(vcf_file, "r") as f:
+            lines = f.read().splitlines()
 
-    vcf = pysam.VariantFile(vcf_path)
-    samples = list(vcf.header.samples)
+    header = None
+    samples = []
     records = []
 
-    for record in vcf.fetch():
-        depth = record.info.get("DP", 0)
-        af = record.info.get("AF", None)
-        if isinstance(af, tuple):
-            af = af[0]
+    for line in lines:
+        if line.startswith("##"):
+            continue
+        if line.startswith("#CHROM"):
+            cols = line.lstrip("#").split("\t")
+            header = cols
+            # samples are columns after FORMAT (index 8)
+            samples = cols[9:] if len(cols) > 9 else []
+            continue
+        if header is None:
+            continue
 
-        variant_type = "SNP"
-        if len(record.ref) != 1 or len(record.alts[0]) != 1:
-            variant_type = "INDEL"
+        parts = line.split("\t")
+        if len(parts) < 8:
+            continue
+
+        chrom, pos, _, ref, alt, qual, _, info = parts[:8]
+        fmt_keys = parts[8].split(":") if len(parts) > 8 else []
+        sample_values = parts[9:] if len(parts) > 9 else []
+
+        # Parse INFO field
+        info_dict = _parse_info(info)
+        depth = int(info_dict.get("DP", 0) or 0)
+        af_raw = info_dict.get("AF", None)
+        af = float(af_raw.split(",")[0]) if af_raw else None
+
+        # Classify variant
+        alts = alt.split(",")
+        variant_type = "SNP" if (len(ref) == 1 and len(alts[0]) == 1) else "INDEL"
 
         row = {
-            "chrom": record.chrom,
-            "position": record.pos,
-            "ref": record.ref,
-            "alt": record.alts[0],
-            "quality": record.qual,
+            "chrom": chrom,
+            "position": int(pos),
+            "ref": ref,
+            "alt": alts[0],
+            "quality": float(qual) if qual not in (".", "") else None,
             "depth": depth,
             "af": af,
             "variant_type": variant_type,
         }
 
-        # Per-sample genotypes for multi-sample VCFs
-        for sample in samples:
-            s = record.samples[sample]
-            gt = s.get("GT", None)
-            gt_str = "/".join(str(a) if a is not None else "." for a in gt) if gt else "."
-            row[f"sample_{sample}_GT"] = gt_str
+        # Per-sample genotypes
+        for i, sample in enumerate(samples):
+            if i < len(sample_values) and fmt_keys:
+                vals = sample_values[i].split(":")
+                gt_idx = fmt_keys.index("GT") if "GT" in fmt_keys else None
+                row[f"sample_{sample}_GT"] = vals[gt_idx] if gt_idx is not None and gt_idx < len(vals) else "."
+            else:
+                row[f"sample_{sample}_GT"] = "."
 
         records.append(row)
 
-    if cleanup:
-        os.unlink(vcf_path)
-
     df = pd.DataFrame(records)
-    df["af"] = pd.to_numeric(df["af"], errors="coerce")
+    if "af" in df.columns:
+        df["af"] = pd.to_numeric(df["af"], errors="coerce")
+    if "quality" in df.columns:
+        df["quality"] = pd.to_numeric(df["quality"], errors="coerce")
     return df
 
 
-def get_samples(vcf_file) -> list:
-    """Return list of sample names from a VCF file."""
-    import tempfile, os, shutil
-
-    if hasattr(vcf_file, "read"):
-        vcf_file.seek(0)
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".vcf") as tmp:
-            shutil.copyfileobj(vcf_file, tmp)
-            vcf_path = tmp.name
-        cleanup = True
-        vcf_file.seek(0)
-    else:
-        vcf_path = vcf_file
-        cleanup = False
-
-    vcf = pysam.VariantFile(vcf_path)
-    samples = list(vcf.header.samples)
-
-    if cleanup:
-        os.unlink(vcf_path)
-
-    return samples
+def _parse_info(info: str) -> dict:
+    """Parse a VCF INFO field string into a dict."""
+    result = {}
+    for part in info.split(";"):
+        if "=" in part:
+            k, v = part.split("=", 1)
+            result[k] = v
+        else:
+            result[part] = True
+    return result
 
 
 def classify_ts_tv(ref: str, alt: str) -> str:
-    """Classify a SNP as transition (Ts) or transversion (Tv)."""
+    """Classify a SNP as Transition (Ts) or Transversion (Tv)."""
     transitions = {("A", "G"), ("G", "A"), ("C", "T"), ("T", "C")}
-    pair = (ref.upper(), alt.upper())
-    if pair in transitions:
-        return "Ts"
-    return "Tv"
+    return "Ts" if (ref.upper(), alt.upper()) in transitions else "Tv"
+
 
