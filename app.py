@@ -46,14 +46,25 @@ use_example = st.sidebar.checkbox("Use example VCF", value=True)
 # ── Load data ─────────────────────────────────────────────────────────────────
 df_raw = None
 if vcf_file:
-    df_raw = load_vcf(vcf_file)
+    try:
+        df_raw = load_vcf(vcf_file)
+    except Exception as e:
+        st.error(f"Failed to parse uploaded VCF: {e}")
+        st.stop()
 elif use_example:
-    example_path = os.path.join(os.path.dirname(__file__), "data", "example.vcf")
-    df_raw = load_vcf(example_path)
+    try:
+        example_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "example.vcf")
+        df_raw = load_vcf(example_path)
+    except Exception as e:
+        st.error(f"Failed to load example VCF: {e}")
+        st.stop()
 
-if df_raw is None:
+if df_raw is None or df_raw.empty or "chrom" not in df_raw.columns:
     st.title("🧬 Genomic Variant Filtering Dashboard")
-    st.info("Upload a VCF file or enable **Use example VCF** in the sidebar to get started.")
+    if df_raw is not None and (df_raw.empty or "chrom" not in df_raw.columns):
+        st.warning("VCF file loaded but no valid variants found. Check the file format.")
+    else:
+        st.info("Upload a VCF file or enable **Use example VCF** in the sidebar to get started.")
     st.stop()
 
 # ── Detect sample columns ────────────────────────────────────────────────────
@@ -126,7 +137,7 @@ c1.metric("Total Variants", len(df_raw))
 c2.metric("Passing Variants", len(df))
 c3.metric("Filtered Out", len(df_raw) - len(df))
 c4.metric("Pass Rate", f"{pass_rate}%")
-c5.metric("Chromosomes", df["chrom"].nunique())
+c5.metric("Chromosomes", df["chrom"].nunique() if "chrom" in df.columns else 0)
 
 st.divider()
 
@@ -142,19 +153,19 @@ tab_overview, tab_distributions, tab_browser, tab_samples, tab_table = st.tabs([
 # ── Tab 1: Overview ───────────────────────────────────────────────────────────
 with tab_overview:
     col1, col2 = st.columns(2)
-    col1.plotly_chart(chromosome_plot(df), use_container_width=True)
-    col2.plotly_chart(variant_type_plot(df), use_container_width=True)
+    col1.plotly_chart(chromosome_plot(df))
+    col2.plotly_chart(variant_type_plot(df))
 
     col3, col4 = st.columns(2)
-    col3.plotly_chart(quality_distribution(df), use_container_width=True)
-    col4.plotly_chart(tstv_plot(df), use_container_width=True)
+    col3.plotly_chart(quality_distribution(df))
+    col4.plotly_chart(tstv_plot(df))
 
 # ── Tab 2: Distributions ──────────────────────────────────────────────────────
 with tab_distributions:
     col1, col2 = st.columns(2)
-    col1.plotly_chart(depth_distribution(df), use_container_width=True)
+    col1.plotly_chart(depth_distribution(df))
     if "af" in df.columns and df["af"].notna().any():
-        col2.plotly_chart(af_scatter(df), use_container_width=True)
+        col2.plotly_chart(af_scatter(df))
     else:
         col2.info("AF data not available in this VCF.")
 
@@ -164,14 +175,14 @@ with tab_browser:
     chrom_select = st.selectbox(
         "Select chromosome to view", options=sorted(df["chrom"].unique().tolist())
     )
-    st.plotly_chart(positional_track(df, chrom_select), use_container_width=True)
+    st.plotly_chart(positional_track(df, chrom_select))
 
 # ── Tab 4: Multi-sample ───────────────────────────────────────────────────────
 with tab_samples:
     st.subheader("👥 Per-Sample Genotypes")
     if sample_cols:
         display_cols = ["chrom", "position", "ref", "alt", "variant_type", "quality", "depth"] + sample_cols
-        st.dataframe(df[display_cols], use_container_width=True, height=400)
+        st.dataframe(df[display_cols], height=400)
 
         st.markdown("**Genotype Counts per Sample**")
         for col in sample_cols:
@@ -186,7 +197,7 @@ with tab_samples:
 # ── Tab 5: Data Table ─────────────────────────────────────────────────────────
 with tab_table:
     st.subheader("📋 Filtered Variants")
-    st.dataframe(df, use_container_width=True, height=420)
+    st.dataframe(df, height=420)
 
     csv = df.to_csv(index=False).encode("utf-8")
     st.download_button(
