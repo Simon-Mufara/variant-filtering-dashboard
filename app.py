@@ -3,11 +3,17 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 
+from config import DEFAULT_MIN_QUAL, DEFAULT_MIN_DP
 from utils.vcf_parser import load_vcf
 from utils.filters import apply_filters
 from utils.compare import compare_vcfs, concordance_by_type
 from utils.snpeff import parse_snpeff, impact_summary, top_affected_genes, IMPACT_COLORS
 from utils.stats import variant_stats, depth_per_chrom, clinvar_significance
+from utils.validator import validate_vcf
+from utils.acmg import classify_dataframe
+from utils.gnomad import annotate_gnomad
+from utils.report import generate_report
+from utils.logger import log
 from utils.plots import (
     chromosome_plot, variant_type_plot, quality_distribution,
     depth_distribution, af_scatter, tstv_plot, positional_track, annotate_with_genes,
@@ -44,25 +50,59 @@ mode = st.sidebar.radio("Mode", ["🔬 Single VCF Analysis", "⚖️ Compare Two
 st.sidebar.markdown("---")
 
 # ─────────────────────────────────────────────────────────────────────────────
-# HELPER: load with error handling
+# HELPERS
 # ─────────────────────────────────────────────────────────────────────────────
-def _load(vcf_file_or_path, label="VCF"):
-    try:
-        return load_vcf(vcf_file_or_path)
-    except Exception as e:
-        st.error(f"Failed to parse {label}: {e}")
+@st.cache_data(show_spinner="Parsing VCF…")
+def _cached_load_path(path: str) -> pd.DataFrame:
+    """Load a VCF from a file-system path with Streamlit caching."""
+    log.info("Loading VCF from path: %s", path)
+    return load_vcf(path)
+
+
+@st.cache_data(show_spinner="Parsing VCF…")
+def _cached_load_bytes(data: bytes, name: str) -> pd.DataFrame:
+    """Load a VCF from raw bytes (uploaded file) with Streamlit caching.
+    The *name* parameter is only used as a cache key discriminator.
+    """
+    import io
+    log.info("Loading uploaded VCF: %s (%d bytes)", name, len(data))
+    return load_vcf(io.BytesIO(data))
+
+
+def _load_with_validation(vcf_file_or_path, label: str = "VCF") -> pd.DataFrame:
+    """Validate then load a VCF, stopping with a user-friendly error on failure."""
+    ok, err = validate_vcf(vcf_file_or_path)
+    if not ok:
+        st.error(f"❌ **{label} validation failed:** {err}")
+        log.error("VCF validation failed for %s: %s", label, err)
         st.stop()
+
+    try:
+        if hasattr(vcf_file_or_path, "read"):
+            # Streamlit UploadedFile — read bytes once, cache by name+size
+            data = vcf_file_or_path.read()
+            if hasattr(vcf_file_or_path, "seek"):
+                vcf_file_or_path.seek(0)
+            return _cached_load_bytes(data, vcf_file_or_path.name)
+        return _cached_load_path(str(vcf_file_or_path))
+    except Exception as exc:
+        st.error(f"❌ Failed to parse {label}: {exc}")
+        log.exception("Parse error for %s", label)
+        st.stop()
+
+
+def _safe_load(uploaded, use_ex: bool, ex_path: str, label: str):
+    if uploaded:
+        return _load_with_validation(uploaded, label)
+    if use_ex:
+        return _load_with_validation(ex_path, label)
+    return None
+
 
 def _chrom_sort_key(c):
     s = str(c).lower().lstrip("chr")
     return (0, int(s)) if s.isdigit() else (1, s)
 
-def _safe_load(uploaded, use_ex, ex_path, label):
-    if uploaded:
-        return _load(uploaded, label)
-    elif use_ex:
-        return _load(ex_path, label)
-    return None
 
 # ─────────────────────────────────────────────────────────────────────────────
 # SINGLE VCF MODE
@@ -84,8 +124,10 @@ if mode == "🔬 Single VCF Analysis":
     # ── Filters ───────────────────────────────────────────────────────────────
     st.sidebar.markdown("---")
     st.sidebar.header("🔧 Filters")
-    min_quality = st.sidebar.slider("Min Quality", 0, 100, 0)
-    min_depth   = st.sidebar.slider("Min Depth", 0, 500, 0)
+    min_quality = st.sidebar.slider("Min Quality", 0, 100, DEFAULT_MIN_QUAL,
+                                    key="sq_qual", help="QUAL score threshold (0 = no filter)")
+    min_depth   = st.sidebar.slider("Min Depth", 0, 500, DEFAULT_MIN_DP,
+                                    key="sq_depth", help="Read depth (DP) threshold")
     all_chroms  = sorted(df_raw["chrom"].unique().tolist(), key=_chrom_sort_key)
     sel_chroms  = st.sidebar.multiselect(f"Chromosomes ({len(all_chroms)} found)", all_chroms, default=[],
                                           help="Leave empty = all. 1, chr1, chrX all work.")
@@ -98,7 +140,9 @@ if mode == "🔬 Single VCF Analysis":
     st.sidebar.markdown("---")
     st.sidebar.header("🔬 Annotation")
     do_ensembl = st.sidebar.checkbox("Gene names (Ensembl)", value=False)
-    st.sidebar.caption("⚠️ Slow for large files")
+    do_gnomad  = st.sidebar.checkbox("gnomAD population AF (first 50 variants)", value=False)
+    do_acmg    = st.sidebar.checkbox("ACMG-lite classification", value=False)
+    st.sidebar.caption("⚠️ gnomAD & Ensembl require internet; slow for large VCFs")
 
     # ── Apply filters ─────────────────────────────────────────────────────────
     df = apply_filters(df_raw, min_quality=min_quality, min_depth=min_depth,
@@ -108,8 +152,16 @@ if mode == "🔬 Single VCF Analysis":
                        filter_pass_only=pass_only)
 
     if do_ensembl and not df.empty:
-        with st.spinner("Querying Ensembl…"):
+        with st.spinner("Querying Ensembl for gene names…"):
             df = annotate_with_genes(df)
+
+    if do_gnomad and not df.empty:
+        with st.spinner("Querying gnomAD (first 50 variants)…"):
+            df = annotate_gnomad(df, max_variants=50)
+
+    if do_acmg and not df.empty:
+        with st.spinner("Running ACMG-lite classification…"):
+            df = classify_dataframe(df)
 
     # ── Header & metrics ──────────────────────────────────────────────────────
     st.title("🧬 Variant Analysis Suite")
@@ -138,8 +190,10 @@ if mode == "🔬 Single VCF Analysis":
         "👥 Multi-Sample",
         "🧪 SnpEff",
         "🏥 ClinVar",
+        "🧬 ACMG",
         "📉 Statistics",
         "📋 Data Table",
+        "📄 Report",
     ])
 
     # ── Overview ──────────────────────────────────────────────────────────────
@@ -238,8 +292,45 @@ if mode == "🔬 Single VCF Analysis":
                 st.markdown(f"**⚠️ {len(pathogenic)} Pathogenic / Likely Pathogenic variants**")
                 st.dataframe(pathogenic, use_container_width=True)
 
-    # ── Statistics ────────────────────────────────────────────────────────────
+    # ── ACMG ──────────────────────────────────────────────────────────────────
     with tabs[6]:
+        st.subheader("🧬 ACMG-lite Pathogenicity Classification")
+        if "acmg_class" not in df.columns:
+            st.info("Enable **ACMG-lite classification** in the sidebar to see results here.")
+        else:
+            acmg_counts = df["acmg_class"].value_counts().reset_index()
+            acmg_counts.columns = ["Classification","Count"]
+            COLOR_MAP = {
+                "Pathogenic": "#dc2626",
+                "Likely Pathogenic": "#ea580c",
+                "VUS": "#ca8a04",
+                "Likely Benign": "#16a34a",
+                "Benign": "#0284c7",
+            }
+            c1, c2 = st.columns(2)
+            with c1:
+                fig = px.pie(acmg_counts, names="Classification", values="Count",
+                             color="Classification", color_discrete_map=COLOR_MAP,
+                             title="ACMG Classification Distribution")
+                st.plotly_chart(fig, use_container_width=True)
+            with c2:
+                fig2 = px.bar(acmg_counts, x="Classification", y="Count",
+                              color="Classification", color_discrete_map=COLOR_MAP,
+                              title="ACMG Classification Counts")
+                st.plotly_chart(fig2, use_container_width=True)
+
+            st.markdown("⚠️ **Disclaimer:** ACMG-lite is a simplified triage tool. It is NOT a "
+                        "clinical-grade classifier. Always confirm with [VarSome](https://varsome.com) "
+                        "or [InterVar](http://www.intervar.org/) before clinical use.")
+            acmg_display = df[["chrom","position","ref","alt","variant_type",
+                                "acmg_class","acmg_path_evidence","acmg_benign_evidence"]].copy()
+            st.dataframe(acmg_display, use_container_width=True, height=400)
+            st.download_button("⬇️ Download ACMG Classifications (CSV)",
+                               acmg_display.to_csv(index=False).encode(),
+                               "acmg_classifications.csv", "text/csv")
+
+    # ── Statistics ────────────────────────────────────────────────────────────
+    with tabs[7]:
         st.subheader("📉 Comprehensive Variant Statistics")
         s = stats
         col1, col2, col3 = st.columns(3)
@@ -269,7 +360,7 @@ if mode == "🔬 Single VCF Analysis":
             st.dataframe(dpc, use_container_width=True)
 
     # ── Data Table ────────────────────────────────────────────────────────────
-    with tabs[7]:
+    with tabs[8]:
         st.subheader("📋 Filtered Variants")
         display_df = df.drop(columns=["info_raw"], errors="ignore")
         st.dataframe(display_df, use_container_width=True, height=450)
@@ -284,6 +375,27 @@ if mode == "🔬 Single VCF Analysis":
                              f"DP={row.get('depth',0)}")
         st.download_button("⬇️ Download VCF", "\n".join(vcf_lines).encode(),
                            "filtered_variants.vcf", "text/plain")
+
+    # ── Report ────────────────────────────────────────────────────────────────
+    with tabs[9]:
+        st.subheader("📄 Export Analysis Report")
+        st.markdown("Generate a self-contained HTML report you can share with colleagues.")
+        fname = (vcf_file.name if vcf_file else "example.vcf").replace(" ", "_")
+        if st.button("🔄 Generate Report", type="primary"):
+            with st.spinner("Building report…"):
+                html_bytes = generate_report(df_raw, df, stats, filename=fname)
+            st.success(f"Report ready — {len(df)} filtered variants from {fname}")
+            st.download_button(
+                label="⬇️ Download HTML Report",
+                data=html_bytes,
+                file_name=fname.replace(".vcf","") + "_report.html",
+                mime="text/html",
+            )
+        else:
+            st.info("Click **Generate Report** above to build your report. "
+                    "It includes summary metrics, variant type breakdown, "
+                    "chromosome distribution, and ACMG classification (if enabled).")
+
 
 
 # ─────────────────────────────────────────────────────────────────────────────
