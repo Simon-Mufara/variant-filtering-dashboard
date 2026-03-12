@@ -64,12 +64,14 @@ samples = [c.replace("sample_", "").replace("_GT", "") for c in sample_cols]
 st.sidebar.markdown("---")
 st.sidebar.header("🔧 Filters")
 
-min_quality = st.sidebar.slider("Minimum Quality", 0, 100, 20)
-min_depth = st.sidebar.slider("Minimum Depth", 0, 500, 10)
-variant_type = st.sidebar.selectbox("Variant Type", ["All", "SNP", "INDEL"])
+min_quality = st.sidebar.slider("Minimum Quality", 0, 100, 0)
+min_depth = st.sidebar.slider("Minimum Depth", 0, 500, 0)
+variant_type = st.sidebar.selectbox("Variant Type", ["All", "SNP", "INDEL", "MNP", "SV", "OTHER"])
 
 all_chroms = sorted(df_raw["chrom"].unique().tolist())
-selected_chroms = st.sidebar.multiselect("Chromosomes", options=all_chroms, default=[])
+selected_chroms = st.sidebar.multiselect("Chromosomes (any format: 1 or chr1)", options=all_chroms, default=[])
+
+filter_pass_only = st.sidebar.checkbox("PASS variants only", value=False)
 
 if "af" in df_raw.columns and df_raw["af"].notna().any():
     af_range = st.sidebar.slider("Allele Frequency Range", 0.0, 1.0, (0.0, 1.0), step=0.01)
@@ -91,6 +93,7 @@ df = apply_filters(
     chromosomes=selected_chroms if selected_chroms else None,
     min_af=af_range[0],
     max_af=af_range[1],
+    filter_pass_only=filter_pass_only,
 )
 
 # Optionally annotate
