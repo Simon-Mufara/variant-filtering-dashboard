@@ -15,7 +15,7 @@ venv/
 env/
 
 # Streamlit
-.streamlit/
+# .streamlit/  # keep config.toml tracked for deployment
 
 # Temporary uploads
 _tmp_upload.vcf

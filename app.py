@@ -66,10 +66,23 @@ st.sidebar.header("🔧 Filters")
 
 min_quality = st.sidebar.slider("Minimum Quality", 0, 100, 0)
 min_depth = st.sidebar.slider("Minimum Depth", 0, 500, 0)
-variant_type = st.sidebar.selectbox("Variant Type", ["All", "SNP", "INDEL", "MNP", "SV", "OTHER"])
 
-all_chroms = sorted(df_raw["chrom"].unique().tolist())
-selected_chroms = st.sidebar.multiselect("Chromosomes (any format: 1 or chr1)", options=all_chroms, default=[])
+# Chromosome list — sorted in genomic order, dynamically from the VCF
+def _chrom_sort_key(c):
+    stripped = str(c).lower().lstrip("chr")
+    return (0, int(stripped)) if stripped.isdigit() else (1, stripped)
+
+all_chroms = sorted(df_raw["chrom"].unique().tolist(), key=_chrom_sort_key)
+selected_chroms = st.sidebar.multiselect(
+    f"Chromosomes ({len(all_chroms)} detected)",
+    options=all_chroms,
+    default=[],
+    help="Leave empty to include all. Accepts any format: 1, chr1, chrX, MT, chrMT, etc.",
+)
+
+# Variant types — dynamically detected from the VCF
+detected_types = sorted(df_raw["variant_type"].dropna().unique().tolist())
+variant_type = st.sidebar.selectbox("Variant Type", ["All"] + detected_types)
 
 filter_pass_only = st.sidebar.checkbox("PASS variants only", value=False)
 
