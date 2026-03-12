@@ -100,6 +100,7 @@ def load_vcf(vcf_file) -> pd.DataFrame:
                 "af": af,
                 "filter": filt,
                 "variant_type": variant_type,
+                "info_raw": info_raw,  # kept for SnpEff/ClinVar downstream parsing
             }
 
             # Genotype columns
