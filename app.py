@@ -1,6 +1,7 @@
 """Variant Analysis Suite — main Streamlit application."""
 import os
 import io
+import types
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -105,34 +106,39 @@ st.markdown("""
 # HELPERS
 # ═══════════════════════════════════════════════════════════════════════════════
 
-@st.cache_data(show_spinner="Parsing file…")
+# Streamlit 1.55 cache hasher walks __globals__ of cached functions and raises
+# KeyError when it encounters module-type objects. Bypass with hash_funcs.
+_CACHE_HASH_FUNCS = {types.ModuleType: lambda m: m.__name__}
+
+
+@st.cache_data(show_spinner="Parsing file…", hash_funcs=_CACHE_HASH_FUNCS)
 def _cached_load_path(path: str) -> pd.DataFrame:
     log.info("Loading file from path: %s", path)
     return load_any(open(path, "rb"), path)
 
 
-@st.cache_data(show_spinner="Parsing file…")
+@st.cache_data(show_spinner="Parsing file…", hash_funcs=_CACHE_HASH_FUNCS)
 def _cached_load_bytes(data: bytes, name: str) -> pd.DataFrame:
     log.info("Loading uploaded file: %s (%d bytes)", name, len(data))
     return load_any(io.BytesIO(data), name)
 
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(show_spinner=False, hash_funcs=_CACHE_HASH_FUNCS)
 def _cached_annotate_vep(df: pd.DataFrame, genome_build: str = "GRCh38") -> pd.DataFrame:
     return annotate_vep(df, max_variants=100, genome_build=genome_build)
 
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(show_spinner=False, hash_funcs=_CACHE_HASH_FUNCS)
 def _cached_annotate_gnomad(df: pd.DataFrame, genome_build: str = "GRCh38") -> pd.DataFrame:
     return annotate_gnomad(df, max_variants=50, genome_build=genome_build)
 
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(show_spinner=False, hash_funcs=_CACHE_HASH_FUNCS)
 def _cached_annotate_genes(df: pd.DataFrame) -> pd.DataFrame:
     return annotate_with_genes(df)
 
 
-@st.cache_data(show_spinner="Downloading VCF from URL…")
+@st.cache_data(show_spinner="Downloading VCF from URL…", hash_funcs=_CACHE_HASH_FUNCS)
 def _cached_load_url(url: str) -> pd.DataFrame:
     import requests as _requests
     resp = _requests.get(url, timeout=120, stream=True)

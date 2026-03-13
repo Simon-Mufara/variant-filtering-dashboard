@@ -142,5 +142,6 @@ def missingness_per_sample(df: pd.DataFrame) -> pd.DataFrame:
         gts = df[col].astype(str)
         missing = gts.str.contains(r"\.", regex=True).sum()
         records.append({"sample": sample, "total": len(df),
-                        "missing": int(missing), "missingness_pct": round(missing / len(df) * 100, 2)})
+                        "missing": int(missing),
+                        "missingness_pct": round(missing / max(len(df), 1) * 100, 2)})
     return pd.DataFrame(records)
