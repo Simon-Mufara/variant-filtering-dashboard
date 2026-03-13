@@ -139,7 +139,32 @@ def _load_with_validation(file_or_path, label: str = "file") -> pd.DataFrame:
     elif isinstance(file_or_path, str):
         filename = os.path.basename(file_or_path)
 
-    # Only run VCF-specific header validation for VCF files
+    # For uploaded files, read all bytes once upfront so we don't lose position
+    if hasattr(file_or_path, "read"):
+        raw_bytes = file_or_path.read()
+        if hasattr(file_or_path, "seek"):
+            file_or_path.seek(0)
+        # Wrap in BytesIO so both validator and parser can read from the start
+        buf = io.BytesIO(raw_bytes)
+        buf.name = filename  # validator uses .name if present
+
+        is_vcf = filename.lower().endswith((".vcf", ".vcf.gz")) or not filename
+        if is_vcf:
+            buf.seek(0)
+            ok, err = validate_vcf(buf)
+            if not ok:
+                st.error(f"❌ **{label} validation failed:** {err}")
+                log.error("Validation failed for %s: %s", label, err)
+                st.stop()
+
+        try:
+            return _cached_load_bytes(raw_bytes, filename)
+        except Exception as exc:
+            st.error(f"❌ Failed to parse {label}: {exc}")
+            log.exception("Parse error for %s", label)
+            st.stop()
+
+    # Path-based load
     is_vcf = filename.lower().endswith((".vcf", ".vcf.gz")) or not filename
     if is_vcf:
         ok, err = validate_vcf(file_or_path)
@@ -148,11 +173,6 @@ def _load_with_validation(file_or_path, label: str = "file") -> pd.DataFrame:
             log.error("Validation failed for %s: %s", label, err)
             st.stop()
     try:
-        if hasattr(file_or_path, "read"):
-            data = file_or_path.read()
-            if hasattr(file_or_path, "seek"):
-                file_or_path.seek(0)
-            return _cached_load_bytes(data, filename)
         return _cached_load_path(str(file_or_path))
     except Exception as exc:
         st.error(f"❌ Failed to parse {label}: {exc}")
