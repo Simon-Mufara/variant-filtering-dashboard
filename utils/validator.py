@@ -76,20 +76,31 @@ def validate_vcf(vcf_file) -> Tuple[bool, str]:
 # ── helpers ───────────────────────────────────────────────────────────────────
 
 def _peek(vcf_file, n_bytes: int) -> str:
-    """Read the first n_bytes as a decoded string without consuming the stream."""
+    """Read the first n_bytes (decompressed) without consuming the stream."""
     import gzip
+    import io as _io
 
     if hasattr(vcf_file, "read"):
         raw = vcf_file.read(n_bytes)
-        # Rewind so the full parser can re-read from the start
         if hasattr(vcf_file, "seek"):
             vcf_file.seek(0)
-        elif hasattr(vcf_file, "getvalue"):
-            pass  # BytesIO — already peeked, caller will getvalue()
-        try:
-            return gzip.decompress(raw).decode("utf-8", errors="replace")
-        except (OSError, EOFError):
-            return raw.decode("utf-8", errors="replace") if isinstance(raw, bytes) else raw
+
+        # Detect gzip by magic bytes — decompress using streaming GzipFile
+        # (gzip.decompress() requires the *complete* stream; GzipFile handles partial)
+        if isinstance(raw, bytes) and raw[:2] == b'\x1f\x8b':
+            try:
+                # Read the full compressed stream if seekable
+                if hasattr(vcf_file, "read") and hasattr(vcf_file, "seek"):
+                    compressed = vcf_file.read()
+                    vcf_file.seek(0)
+                else:
+                    compressed = raw
+                with gzip.GzipFile(fileobj=_io.BytesIO(compressed)) as gz:
+                    return gz.read(n_bytes).decode("utf-8", errors="replace")
+            except (OSError, EOFError):
+                pass
+
+        return raw.decode("utf-8", errors="replace") if isinstance(raw, bytes) else raw
 
     path = str(vcf_file)
     if path.endswith(".gz"):
