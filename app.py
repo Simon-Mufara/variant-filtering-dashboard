@@ -299,13 +299,21 @@ if mode == "🔬 Single VCF":
             apply_panel   = st.checkbox("Apply panel filter", value=False)
 
         with st.expander("🔬 Annotations", expanded=False):
-            do_ensembl = st.checkbox("Gene names (Ensembl)", help="Queries Ensembl REST API")
-            do_vep     = st.checkbox("VEP consequences (first 100)", help="SIFT, PolyPhen, HGVS")
-            do_gnomad  = st.checkbox("gnomAD population AF (first 50)")
-            do_scores  = st.checkbox("Predictor scores (CADD, SpliceAI, REVEL)")
-            do_acmg    = st.checkbox("ACMG-lite classification")
-            do_priority = st.checkbox("Variant prioritization score")
-            st.caption("⚠️ API annotations require internet; slow for large VCFs")
+            # Auto-enable local parsers when annotated example is active
+            _is_annotated = (not vcf_file) and ex_choice in (
+                "Annotated VCF (SnpEff + ClinVar)", "MAF (TCGA cancer)")
+            do_ensembl  = st.checkbox("Gene names (Ensembl)", help="Queries Ensembl REST API")
+            do_vep      = st.checkbox("VEP consequences (first 100)", help="SIFT, PolyPhen, HGVS")
+            do_gnomad   = st.checkbox("gnomAD population AF (first 50)")
+            do_scores   = st.checkbox("Predictor scores (CADD, SpliceAI, REVEL, AlphaMissense)",
+                                      value=_is_annotated)
+            do_acmg     = st.checkbox("ACMG-lite classification",
+                                      value=_is_annotated)
+            do_priority = st.checkbox("Variant prioritization score",
+                                      value=_is_annotated)
+            if _is_annotated:
+                st.success("✅ Predictor scores & prioritization auto-enabled for annotated example")
+            st.caption("⚠️ API annotations (Ensembl/VEP/gnomAD) require internet; slow for large VCFs")
 
     # ── Apply filters ─────────────────────────────────────────────────────────
     df = apply_filters(
@@ -438,7 +446,21 @@ if mode == "🔬 Single VCF":
     with tabs[4]:
         st.markdown('<div class="section-header">🎯 Variant Prioritization</div>', unsafe_allow_html=True)
         if "priority_score" not in df.columns:
-            st.info("Enable **Variant prioritization score** in the sidebar to rank variants.")
+            st.info(
+                "**Variant prioritization score** ranks variants 0–100 using an additive model:\n\n"
+                "| Component | Max pts | Source |\n"
+                "|---|---|---|\n"
+                "| ACMG classification | 40 | ACMG-lite (sidebar) |\n"
+                "| gnomAD AF rarity | 20 | gnomAD API (sidebar) |\n"
+                "| SnpEff/VEP impact | 15 | ANN= or vep_impact column |\n"
+                "| ClinVar significance | 15 | CLNSIG INFO field |\n"
+                "| Predictor scores | 10 | CADD, REVEL, AlphaMissense |\n"
+                "| QUAL score | 10 | VCF QUAL field |\n\n"
+                "**To activate:** tick **Variant prioritization score** in the sidebar.\n\n"
+                "💡 For the richest scores, also enable **Predictor scores** and "
+                "**ACMG-lite classification** — or select the "
+                "**Annotated VCF (SnpEff + ClinVar)** example which activates all three automatically."
+            )
         else:
             tier_counts = df["priority_tier"].value_counts().reset_index()
             tier_counts.columns = ["Tier","Count"]
@@ -537,10 +559,14 @@ if mode == "🔬 Single VCF":
         st.markdown('<div class="section-header">🧪 SnpEff Functional Annotation</div>', unsafe_allow_html=True)
         ann_df = parse_snpeff(df)
         if ann_df.empty:
-            st.info("No SnpEff ANN field found in this VCF.\n\n"
-                    "**To use this feature**, your VCF must be pre-annotated with SnpEff:\n"
-                    "```\nsnpEff ann GRCh38.86 input.vcf > annotated.vcf\n```\n"
-                    "Or download the [example annotated VCF](data/example_annotated.vcf) to try the feature immediately.")
+            st.info(
+                "No SnpEff **ANN=** field found in this VCF.\n\n"
+                "**Quick fix:** In the sidebar, switch the example to "
+                "**Annotated VCF (SnpEff + ClinVar)** — it loads immediately with 15 cancer "
+                "variants annotated at HIGH/MODERATE/LOW impact.\n\n"
+                "**For your own VCF**, pre-annotate with SnpEff:\n"
+                "```\nsnpEff ann GRCh38.86 input.vcf > annotated.vcf\n```"
+            )
         else:
             c1, c2 = st.columns(2)
             with c1:
@@ -563,10 +589,18 @@ if mode == "🔬 Single VCF":
         st.markdown('<div class="section-header">🏥 ClinVar Clinical Significance</div>', unsafe_allow_html=True)
         clin_df = clinvar_significance(df)
         if clin_df.empty or clin_df["ClinVar Significance"].eq("Unknown").all():
-            st.info("No ClinVar CLNSIG field found in this VCF.\n\n"
-                    "**To use this feature**, annotate your VCF with ClinVar:\n"
-                    "```\nbcftools annotate -a clinvar.vcf.gz -c INFO/CLNSIG,INFO/CLNDN input.vcf\n```\n"
-                    "Or download the [example annotated VCF](data/example_annotated.vcf) to try the feature immediately.")
+            st.info(
+                "No ClinVar **CLNSIG=** field found in this VCF.\n\n"
+                "**Quick fix:** In the sidebar, switch the example to "
+                "**Annotated VCF (SnpEff + ClinVar)** — it includes ClinVar "
+                "classifications for 15 cancer genes (TP53, BRCA1, KRAS, etc.).\n\n"
+                "**For your own VCF**, annotate with ClinVar:\n"
+                "```\nbcftools annotate \\\n"
+                "  -a clinvar_20240101.vcf.gz \\\n"
+                "  -c INFO/CLNSIG,INFO/CLNDN,INFO/CLNREVSTAT \\\n"
+                "  input.vcf > clinvar_annotated.vcf\n```\n"
+                "Download ClinVar VCF from: https://ftp.ncbi.nlm.nih.gov/pub/clinvar/vcf_GRCh38/"
+            )
         else:
             sig_counts = clin_df["ClinVar Significance"].value_counts().reset_index()
             sig_counts.columns = ["Significance","Count"]
@@ -645,9 +679,21 @@ if mode == "🔬 Single VCF":
         score_cols = [c for c in ["cadd_phred","revel_score","spliceai_max_delta",
                                   "alphamissense_score","alphamissense_class"] if c in df.columns]
         if not score_cols:
-            st.info("Enable **Predictor scores** in the sidebar to parse CADD, SpliceAI, "
-                    "REVEL, and AlphaMissense scores from the INFO field.\n\n"
-                    "These are present in VCFs annotated with bcftools/dbNSFP/SpliceAI pipelines.")
+            st.info(
+                "**Predictor scores** (CADD, SpliceAI, REVEL, AlphaMissense) are parsed "
+                "from the VCF INFO field.\n\n"
+                "**To activate:**\n"
+                "1. Tick **Predictor scores** in the sidebar → Annotations\n"
+                "2. Use an annotated VCF — select **Annotated VCF (SnpEff + ClinVar)** "
+                "from the example selector, or upload your own VCF annotated with:\n"
+                "```\n"
+                "# Annotate with dbNSFP (REVEL, AlphaMissense, CADD):\n"
+                "bcftools annotate -a dbNSFP4.4a_grch38.gz \\\n"
+                "  -c CHROM,POS,REF,ALT,CADD_PHRED,REVEL,AM_PATHOGENICITY input.vcf\n\n"
+                "# Annotate with SpliceAI:\n"
+                "spliceai -I input.vcf -O annotated.vcf -R genome.fa -A grch38\n"
+                "```"
+            )
         else:
             summary = score_summary(df)
             if not summary.empty:
