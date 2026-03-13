@@ -53,14 +53,19 @@ def variant_stats(df: pd.DataFrame) -> dict:
     # Quality stats
     if "quality" in df.columns:
         q = df["quality"].dropna()
-        stats["mean_qual"] = round(q.mean(), 1) if len(q) > 0 else None
-        stats["median_qual"] = round(q.median(), 1) if len(q) > 0 else None
+        stats["mean_qual"] = float(round(q.mean(), 1)) if len(q) > 0 else None
+        stats["median_qual"] = float(round(q.median(), 1)) if len(q) > 0 else None
 
     # Depth stats
     if "depth" in df.columns:
         d = df["depth"].dropna()
-        stats["mean_depth"] = round(d.mean(), 1) if len(d) > 0 else None
-        stats["median_depth"] = round(d.median(), 1) if len(d) > 0 else None
+        stats["mean_depth"] = float(round(d.mean(), 1)) if len(d) > 0 else None
+        stats["median_depth"] = float(round(d.median(), 1)) if len(d) > 0 else None
+
+    # Convert any remaining numpy scalars to Python native types
+    for k, v in stats.items():
+        if hasattr(v, 'item'):
+            stats[k] = v.item()
 
     return stats
 

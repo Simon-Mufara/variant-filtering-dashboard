@@ -841,16 +841,19 @@ if mode == "🔬 Single VCF":
             )
         c2.download_button("⬇️ Download VCF", "\n".join(vcf_lines).encode(),
                            "filtered_variants.vcf", "text/plain")
-        xlsx_buf = io.BytesIO()
-        with pd.ExcelWriter(xlsx_buf, engine='openpyxl') as writer:
-            display_df.to_excel(writer, sheet_name='Filtered Variants', index=False)
-            if do_priority and 'priority_score' in df.columns:
-                df[['chrom', 'position', 'ref', 'alt', 'priority_score', 'priority_tier']].to_excel(
-                    writer, sheet_name='Prioritized', index=False)
-        c3.download_button(
-            "⬇️ Download XLSX (multi-sheet)", xlsx_buf.getvalue(),
-            "variants.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
+        try:
+            xlsx_buf = io.BytesIO()
+            with pd.ExcelWriter(xlsx_buf, engine='openpyxl') as writer:
+                display_df.to_excel(writer, sheet_name='Filtered Variants', index=False)
+                if do_priority and 'priority_score' in df.columns:
+                    df[['chrom', 'position', 'ref', 'alt', 'priority_score', 'priority_tier']].to_excel(
+                        writer, sheet_name='Prioritized', index=False)
+            c3.download_button(
+                "⬇️ Download XLSX (multi-sheet)", xlsx_buf.getvalue(),
+                "variants.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+        except Exception:
+            c3.info("XLSX export requires openpyxl (check requirements.txt)")
 
     # ── 13: Report ────────────────────────────────────────────────────────────
     with tabs[13]:
