@@ -115,6 +115,21 @@ def _cached_load_bytes(data: bytes, name: str) -> pd.DataFrame:
     return load_vcf(io.BytesIO(data))
 
 
+@st.cache_data(show_spinner=False)
+def _cached_annotate_vep(df: pd.DataFrame) -> pd.DataFrame:
+    return annotate_vep(df, max_variants=100)
+
+
+@st.cache_data(show_spinner=False)
+def _cached_annotate_gnomad(df: pd.DataFrame) -> pd.DataFrame:
+    return annotate_gnomad(df, max_variants=50)
+
+
+@st.cache_data(show_spinner=False)
+def _cached_annotate_genes(df: pd.DataFrame) -> pd.DataFrame:
+    return annotate_with_genes(df)
+
+
 def _load_with_validation(vcf_file_or_path, label: str = "VCF") -> pd.DataFrame:
     ok, err = validate_vcf(vcf_file_or_path)
     if not ok:
@@ -184,6 +199,7 @@ with st.sidebar:
 
 
 EX_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "example.vcf")
+EX_ANNOTATED_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "example_annotated.vcf")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -197,8 +213,11 @@ if mode == "🔬 Single VCF":
             vcf_file   = st.file_uploader("Upload VCF", type=["vcf", "vcf.gz"],
                                           help="Supports plain or gzipped VCF files up to 500 MB")
             use_example = st.checkbox("Use example VCF", value=True)
+            use_annotated = st.checkbox("Use annotated example (SnpEff + ClinVar)", value=False,
+                                        help="Loads a VCF pre-annotated with SnpEff ANN and ClinVar CLNSIG fields — enables the SnpEff and ClinVar tabs")
 
-        df_raw = _safe_load(vcf_file, use_example, EX_PATH, "VCF")
+        _ex = EX_ANNOTATED_PATH if (use_annotated and not vcf_file) else EX_PATH
+        df_raw = _safe_load(vcf_file, use_example or use_annotated, _ex, "VCF")
         if df_raw is None or df_raw.empty or "chrom" not in df_raw.columns:
             st.title("🧬 Variant Analysis Suite")
             st.info("Upload a VCF file or enable **Use example VCF** to begin.")
@@ -258,13 +277,13 @@ if mode == "🔬 Single VCF":
     # Annotations
     if do_ensembl and not df.empty:
         with st.spinner("Querying Ensembl for gene names…"):
-            df = annotate_with_genes(df)
+            df = _cached_annotate_genes(df)
     if do_vep and not df.empty:
         with st.spinner("Running VEP annotation (first 100 variants)…"):
-            df = annotate_vep(df, max_variants=100)
+            df = _cached_annotate_vep(df)
     if do_gnomad and not df.empty:
         with st.spinner("Querying gnomAD (first 50 variants)…"):
-            df = annotate_gnomad(df, max_variants=50)
+            df = _cached_annotate_gnomad(df)
     if do_scores and not df.empty:
         with st.spinner("Parsing predictor scores from INFO…"):
             df = parse_predictor_scores(df)
@@ -431,24 +450,35 @@ if mode == "🔬 Single VCF":
         else:
             disp_cols = ["chrom","position","ref","alt","variant_type"] + vep_cols
             vep_df = df[[c for c in disp_cols if c in df.columns]]
-            st.dataframe(vep_df, width="stretch", height=400)
+            # Check if all VEP results are empty (API may have failed)
+            non_empty = vep_df[vep_cols].astype(bool).any(axis=1).sum()
+            if non_empty == 0:
+                st.warning("⚠️ VEP returned no annotations. This can happen if:\n"
+                           "- Chromosome names use 'chr' prefix but Ensembl expects plain numbers\n"
+                           "- The Ensembl API is temporarily unavailable\n"
+                           "- Variants are on unrecognised contigs (e.g. alt chromosomes)\n\n"
+                           "Try again or check the [Ensembl REST API status](https://rest.ensembl.org).")
+            else:
+                st.dataframe(vep_df, width="stretch", height=400)
 
-            if "vep_impact" in df.columns:
-                impact_counts = df["vep_impact"].value_counts().reset_index()
-                impact_counts.columns = ["Impact","Count"]
-                fig = px.bar(impact_counts, x="Impact", y="Count", color="Impact",
-                             color_discrete_map=IMPACT_COLORS, title="VEP Impact Distribution")
-                st.plotly_chart(fig, width="stretch")
+                if "vep_impact" in df.columns:
+                    impact_counts = df["vep_impact"][df["vep_impact"] != ""].value_counts().reset_index()
+                    impact_counts.columns = ["Impact","Count"]
+                    if not impact_counts.empty:
+                        fig = px.bar(impact_counts, x="Impact", y="Count", color="Impact",
+                                     color_discrete_map=IMPACT_COLORS, title="VEP Impact Distribution")
+                        st.plotly_chart(fig, width="stretch")
 
-            if "vep_symbol" in df.columns:
-                top_genes = df["vep_symbol"].value_counts().head(15).reset_index()
-                top_genes.columns = ["Gene","Count"]
-                fig2 = px.bar(top_genes, x="Gene", y="Count", title="Top Affected Genes (VEP)")
-                st.plotly_chart(fig2, width="stretch")
+                if "vep_symbol" in df.columns:
+                    top_genes = df["vep_symbol"][df["vep_symbol"] != ""].value_counts().head(15).reset_index()
+                    top_genes.columns = ["Gene","Count"]
+                    if not top_genes.empty:
+                        fig2 = px.bar(top_genes, x="Gene", y="Count", title="Top Affected Genes (VEP)")
+                        st.plotly_chart(fig2, width="stretch")
 
-            st.download_button("⬇️ Download VEP Annotations (CSV)",
-                               vep_df.to_csv(index=False).encode(),
-                               "vep_annotations.csv", "text/csv")
+                st.download_button("⬇️ Download VEP Annotations (CSV)",
+                                   vep_df.to_csv(index=False).encode(),
+                                   "vep_annotations.csv", "text/csv")
 
     # ── 7: SnpEff ─────────────────────────────────────────────────────────────
     with tabs[7]:
@@ -456,7 +486,9 @@ if mode == "🔬 Single VCF":
         ann_df = parse_snpeff(df)
         if ann_df.empty:
             st.info("No SnpEff ANN field found in this VCF.\n\n"
-                    "Run SnpEff first:\n```\nsnpEff ann GRCh38.86 input.vcf > annotated.vcf\n```")
+                    "**To use this feature**, your VCF must be pre-annotated with SnpEff:\n"
+                    "```\nsnpEff ann GRCh38.86 input.vcf > annotated.vcf\n```\n"
+                    "Or download the [example annotated VCF](data/example_annotated.vcf) to try the feature immediately.")
         else:
             c1, c2 = st.columns(2)
             with c1:
@@ -479,8 +511,10 @@ if mode == "🔬 Single VCF":
         st.markdown('<div class="section-header">🏥 ClinVar Clinical Significance</div>', unsafe_allow_html=True)
         clin_df = clinvar_significance(df)
         if clin_df.empty or clin_df["ClinVar Significance"].eq("Unknown").all():
-            st.info("No ClinVar CLNSIG field found.\n\n"
-                    "Annotate first:\n```\nbcftools annotate -a clinvar.vcf.gz -c INFO/CLNSIG,INFO/CLNDN input.vcf\n```")
+            st.info("No ClinVar CLNSIG field found in this VCF.\n\n"
+                    "**To use this feature**, annotate your VCF with ClinVar:\n"
+                    "```\nbcftools annotate -a clinvar.vcf.gz -c INFO/CLNSIG,INFO/CLNDN input.vcf\n```\n"
+                    "Or download the [example annotated VCF](data/example_annotated.vcf) to try the feature immediately.")
         else:
             sig_counts = clin_df["ClinVar Significance"].value_counts().reset_index()
             sig_counts.columns = ["Significance","Count"]
@@ -588,7 +622,7 @@ if mode == "🔬 Single VCF":
         c1.download_button("⬇️ Download CSV", display_df.to_csv(index=False).encode(),
                            "filtered_variants.csv", "text/csv")
         vcf_lines = ["##fileformat=VCFv4.2",
-                     f"##source=VariantAnalysisSuite",
+                     "##source=VariantAnalysisSuite",
                      "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO"]
         for _, row in display_df.iterrows():
             vcf_lines.append(
