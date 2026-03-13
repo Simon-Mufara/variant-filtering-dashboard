@@ -74,13 +74,18 @@ def lookup_gnomad(
         return None
 
 
-def annotate_gnomad(df: pd.DataFrame, dataset: str = "gnomad_r4", max_variants: int = 50) -> pd.DataFrame:
+def annotate_gnomad(df: pd.DataFrame, dataset: str = "gnomad_r4", max_variants: int = 50,
+                    genome_build: str = "GRCh38") -> pd.DataFrame:
     """Add gnomAD columns to a DataFrame.
 
     Only annotates up to *max_variants* rows to avoid rate-limiting.
     """
     if df.empty:
         return df
+
+    # Select dataset based on genome build
+    if "GRCh37" in genome_build:
+        dataset = "gnomad_r2_1"
 
     results = []
     for _, row in df.head(max_variants).iterrows():

@@ -14,6 +14,7 @@ from utils.filters import apply_filters
 from utils.compare import compare_vcfs, concordance_by_type
 from utils.snpeff import parse_snpeff, impact_summary, top_affected_genes, IMPACT_COLORS
 from utils.stats import variant_stats, depth_per_chrom, clinvar_significance
+from utils.stats import allele_balance_stats, variant_density, missingness_per_sample
 from utils.acmg import classify_dataframe
 from utils.gnomad import annotate_gnomad
 from utils.prioritize import prioritize_dataframe
@@ -117,18 +118,28 @@ def _cached_load_bytes(data: bytes, name: str) -> pd.DataFrame:
 
 
 @st.cache_data(show_spinner=False)
-def _cached_annotate_vep(df: pd.DataFrame) -> pd.DataFrame:
-    return annotate_vep(df, max_variants=100)
+def _cached_annotate_vep(df: pd.DataFrame, genome_build: str = "GRCh38") -> pd.DataFrame:
+    return annotate_vep(df, max_variants=100, genome_build=genome_build)
 
 
 @st.cache_data(show_spinner=False)
-def _cached_annotate_gnomad(df: pd.DataFrame) -> pd.DataFrame:
-    return annotate_gnomad(df, max_variants=50)
+def _cached_annotate_gnomad(df: pd.DataFrame, genome_build: str = "GRCh38") -> pd.DataFrame:
+    return annotate_gnomad(df, max_variants=50, genome_build=genome_build)
 
 
 @st.cache_data(show_spinner=False)
 def _cached_annotate_genes(df: pd.DataFrame) -> pd.DataFrame:
     return annotate_with_genes(df)
+
+
+@st.cache_data(show_spinner="Downloading VCF from URL…")
+def _cached_load_url(url: str) -> pd.DataFrame:
+    import requests as _requests
+    resp = _requests.get(url, timeout=120, stream=True)
+    resp.raise_for_status()
+    data = resp.content
+    filename = url.split("/")[-1].split("?")[0] or "remote.vcf"
+    return load_any(io.BytesIO(data), filename)
 
 
 def _load_with_validation(file_or_path, label: str = "file") -> pd.DataFrame:
@@ -209,7 +220,7 @@ with st.sidebar:
       <div style="font-size:2.4rem">🧬</div>
       <div style="color:#93c5fd; font-size:1.1rem; font-weight:700; letter-spacing:.5px">
         VARIANT ANALYSIS SUITE</div>
-      <div style="color:#64748b; font-size:.75rem; margin-top:.2rem">v2.1 · Industry Edition</div>
+      <div style="color:#64748b; font-size:.75rem; margin-top:.2rem">v3.0 · Pro Edition</div>
     </div>
     """, unsafe_allow_html=True)
     st.divider()
@@ -274,6 +285,11 @@ if mode == "🔬 Single VCF":
                 help="Accepts: VCF, VCF.GZ, MAF (TCGA), TSV, CSV variant tables"
             )
             st.caption("Supported: VCF · VCF.GZ · MAF · TSV · CSV")
+            url_input = st.text_input(
+                "Or load from URL (HTTPS/FTP)",
+                placeholder="https://…/example.vcf.gz",
+                help="Paste a direct URL to a VCF or VCF.GZ file"
+            )
             st.divider()
             ex_choice = st.radio(
                 "Or use a built-in example",
@@ -290,6 +306,12 @@ if mode == "🔬 Single VCF":
         _ex_path = _ex_map.get(ex_choice)
         use_example = (ex_choice != "None") and not vcf_file
         df_raw = _safe_load(vcf_file, use_example, _ex_path or EX_PATH, "variant file")
+        if df_raw is None and url_input and not vcf_file:
+            try:
+                df_raw = _cached_load_url(url_input)
+            except Exception as _url_exc:
+                st.error(f"❌ Failed to load from URL: {_url_exc}")
+                st.stop()
         if df_raw is None or df_raw.empty or "chrom" not in df_raw.columns:
             st.title("🧬 Variant Analysis Suite")
             st.info("Upload a variant file (VCF, MAF, TSV/CSV) or choose a built-in example to begin.")
@@ -322,6 +344,11 @@ if mode == "🔬 Single VCF":
             # Auto-enable local parsers when annotated example is active
             _is_annotated = (not vcf_file) and ex_choice in (
                 "Annotated VCF (SnpEff + ClinVar)", "MAF (TCGA cancer)")
+            genome_build = st.radio(
+                "Genome Build", ["GRCh38 (hg38)", "GRCh37 (hg19)"],
+                horizontal=True,
+                help="Used for VEP and gnomAD queries"
+            )
             do_ensembl  = st.checkbox("Gene names (Ensembl)", help="Queries Ensembl REST API")
             do_vep      = st.checkbox("VEP consequences (first 100)", help="SIFT, PolyPhen, HGVS")
             do_gnomad   = st.checkbox("gnomAD population AF (first 50)")
@@ -360,10 +387,10 @@ if mode == "🔬 Single VCF":
             df = _cached_annotate_genes(df)
     if do_vep and not df.empty:
         with st.spinner("Running VEP annotation (first 100 variants)…"):
-            df = _cached_annotate_vep(df)
+            df = _cached_annotate_vep(df, genome_build=genome_build)
     if do_gnomad and not df.empty:
         with st.spinner("Querying gnomAD (first 50 variants)…"):
-            df = _cached_annotate_gnomad(df)
+            df = _cached_annotate_gnomad(df, genome_build=genome_build)
     if do_scores and not df.empty:
         with st.spinner("Parsing predictor scores from INFO…"):
             df = parse_predictor_scores(df)
@@ -412,6 +439,28 @@ if mode == "🔬 Single VCF":
         c3, c4 = st.columns(2)
         c3.plotly_chart(quality_distribution(df), width="stretch")
         c4.plotly_chart(tstv_plot(df), width="stretch")
+        # SV summary
+        if "variant_type" in df.columns and (df["variant_type"] == "SV").any():
+            st.divider()
+            st.markdown('<div class="section-header">🔷 Structural Variant Summary</div>', unsafe_allow_html=True)
+            sv_df = df[df["variant_type"] == "SV"].copy()
+            c1, c2 = st.columns(2)
+            with c1:
+                svtype_counts = sv_df["svtype"].value_counts().reset_index() if "svtype" in sv_df.columns else pd.DataFrame()
+                if not svtype_counts.empty:
+                    svtype_counts.columns = ["SVTYPE", "Count"]
+                    st.markdown(f"**{len(sv_df)} SVs detected**")
+                    st.dataframe(svtype_counts, width="stretch")
+            with c2:
+                chrom_counts = sv_df["chrom"].value_counts().reset_index()
+                chrom_counts.columns = ["Chromosome", "SV Count"]
+                fig_sv = px.bar(chrom_counts, x="Chromosome", y="SV Count", title="SVs per Chromosome")
+                st.plotly_chart(fig_sv, width="stretch")
+            if "svlen" in sv_df.columns and sv_df["svlen"].abs().gt(0).any():
+                sv_df["sv_size"] = sv_df["svlen"].abs()
+                fig_size = px.histogram(sv_df[sv_df["sv_size"] > 0], x="sv_size", nbins=30,
+                                        title="SV Size Distribution (bp)", log_x=True)
+                st.plotly_chart(fig_size, width="stretch")
 
     # ── 1: Distributions ──────────────────────────────────────────────────────
     with tabs[1]:
@@ -665,33 +714,68 @@ if mode == "🔬 Single VCF":
     # ── 10: Statistics ────────────────────────────────────────────────────────
     with tabs[10]:
         st.markdown('<div class="section-header">📉 Comprehensive QC Statistics</div>', unsafe_allow_html=True)
-        s = stats
-        c1,c2,c3 = st.columns(3)
-        c1.metric("SNPs", s.get("snp_count","—"))
-        c2.metric("INDELs", s.get("indel_count","—"))
-        c3.metric("MNPs", s.get("mnp_count","—"))
-        c1.metric("Transitions (Ts)", s.get("ts_count","—"))
-        c2.metric("Transversions (Tv)", s.get("tv_count","—"))
-        c3.metric("Ts/Tv Ratio", s.get("tstv_ratio","—"),
-                  help="Expected: ~2.1 for WGS SNPs, ~3.0 for WES SNPs")
-        if s.get("het") is not None:
-            c1.metric("Het (avg/sample)", s["het"])
-            c2.metric("Hom Alt (avg/sample)", s["hom_alt"])
-            c3.metric("Het/Hom Ratio", s.get("het_hom_ratio","—"),
-                      help="Expected: ~2.0–2.5 for WGS. Very high may indicate contamination.")
-            c1.metric("Missingness %", s.get("missingness_pct","—"))
-        c1.metric("Mean QUAL", s.get("mean_qual","—"))
-        c2.metric("Median QUAL", s.get("median_qual","—"))
-        c3.metric("Mean Depth", s.get("mean_depth","—"))
-        st.divider()
-        dpc = depth_per_chrom(df)
-        if not dpc.empty:
-            st.markdown("**Read Depth per Chromosome**")
-            st.plotly_chart(px.bar(dpc, x="Chromosome", y="Mean Depth",
-                                   hover_data=["Median Depth","Variant Count"],
-                                   title="Mean Read Depth per Chromosome"),
-                            width="stretch")
-            st.dataframe(dpc, width="stretch")
+        qc_tabs = st.tabs(["QC Overview", "Allele Balance", "Variant Density", "Per-Sample"])
+        with qc_tabs[0]:
+            s = stats
+            c1,c2,c3 = st.columns(3)
+            c1.metric("SNPs", s.get("snp_count","—"))
+            c2.metric("INDELs", s.get("indel_count","—"))
+            c3.metric("MNPs", s.get("mnp_count","—"))
+            c1.metric("Transitions (Ts)", s.get("ts_count","—"))
+            c2.metric("Transversions (Tv)", s.get("tv_count","—"))
+            c3.metric("Ts/Tv Ratio", s.get("tstv_ratio","—"),
+                      help="Expected: ~2.1 for WGS SNPs, ~3.0 for WES SNPs")
+            if s.get("het") is not None:
+                c1.metric("Het (avg/sample)", s["het"])
+                c2.metric("Hom Alt (avg/sample)", s["hom_alt"])
+                c3.metric("Het/Hom Ratio", s.get("het_hom_ratio","—"),
+                          help="Expected: ~2.0–2.5 for WGS. Very high may indicate contamination.")
+                c1.metric("Missingness %", s.get("missingness_pct","—"))
+            c1.metric("Mean QUAL", s.get("mean_qual","—"))
+            c2.metric("Median QUAL", s.get("median_qual","—"))
+            c3.metric("Mean Depth", s.get("mean_depth","—"))
+            st.divider()
+            dpc = depth_per_chrom(df)
+            if not dpc.empty:
+                st.markdown("**Read Depth per Chromosome**")
+                st.plotly_chart(px.bar(dpc, x="Chromosome", y="Mean Depth",
+                                       hover_data=["Median Depth","Variant Count"],
+                                       title="Mean Read Depth per Chromosome"),
+                                width="stretch")
+                st.dataframe(dpc, width="stretch")
+        with qc_tabs[1]:
+            ab_df = allele_balance_stats(df)
+            if ab_df.empty:
+                st.info("No AD= allele depth fields found in INFO. Allele balance requires AD=ref,alt in INFO.")
+            else:
+                fig_ab = px.histogram(ab_df.dropna(subset=["allele_balance"]),
+                                      x="allele_balance", nbins=40,
+                                      title="Allele Balance Distribution",
+                                      labels={"allele_balance": "Allele Balance (alt/(ref+alt))"})
+                fig_ab.add_vline(x=0.5, line_dash="dash", line_color="red",
+                                 annotation_text="Expected het (0.5)")
+                st.plotly_chart(fig_ab, width="stretch")
+                st.dataframe(ab_df, width="stretch")
+        with qc_tabs[2]:
+            dens_df = variant_density(df)
+            if dens_df.empty:
+                st.info("No positional data for density calculation.")
+            else:
+                fig_dens = px.density_heatmap(dens_df, x="bin", y="chrom", z="count",
+                                              title="Variant Density (10 Mb bins)",
+                                              labels={"bin": "Genomic Position (Mb)", "chrom": "Chromosome", "count": "Variants"})
+                st.plotly_chart(fig_dens, width="stretch")
+                st.dataframe(dens_df, width="stretch")
+        with qc_tabs[3]:
+            miss_df = missingness_per_sample(df)
+            if miss_df.empty:
+                st.info("No sample genotype columns found.")
+            else:
+                fig_miss = px.bar(miss_df, x="sample", y="missingness_pct",
+                                  title="Per-Sample Missingness (%)",
+                                  labels={"missingness_pct": "Missingness %", "sample": "Sample"})
+                st.plotly_chart(fig_miss, width="stretch")
+                st.dataframe(miss_df, width="stretch")
 
     # ── 11: Predictor Scores ──────────────────────────────────────────────────
     with tabs[11]:
@@ -736,7 +820,7 @@ if mode == "🔬 Single VCF":
         st.markdown('<div class="section-header">📋 Filtered Variants</div>', unsafe_allow_html=True)
         display_df = df.drop(columns=["info_raw"], errors="ignore")
         st.dataframe(display_df, width="stretch", height=440)
-        c1, c2 = st.columns(2)
+        c1, c2, c3 = st.columns(3)
         c1.download_button("⬇️ Download CSV", display_df.to_csv(index=False).encode(),
                            "filtered_variants.csv", "text/csv")
         vcf_lines = ["##fileformat=VCFv4.2",
@@ -751,6 +835,16 @@ if mode == "🔬 Single VCF":
             )
         c2.download_button("⬇️ Download VCF", "\n".join(vcf_lines).encode(),
                            "filtered_variants.vcf", "text/plain")
+        xlsx_buf = io.BytesIO()
+        with pd.ExcelWriter(xlsx_buf, engine='openpyxl') as writer:
+            display_df.to_excel(writer, sheet_name='Filtered Variants', index=False)
+            if do_priority and 'priority_score' in df.columns:
+                df[['chrom', 'position', 'ref', 'alt', 'priority_score', 'priority_tier']].to_excel(
+                    writer, sheet_name='Prioritized', index=False)
+        c3.download_button(
+            "⬇️ Download XLSX (multi-sheet)", xlsx_buf.getvalue(),
+            "variants.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
 
     # ── 13: Report ────────────────────────────────────────────────────────────
     with tabs[13]:
@@ -1018,6 +1112,35 @@ elif mode == "🧫 Somatic (Tumor/Normal)":
             c1, c2 = st.columns(2)
             c1.plotly_chart(variant_type_plot(somatic), width="stretch")
             c2.plotly_chart(chromosome_plot(somatic), width="stretch")
+            # Clonal architecture VAF plot
+            if "af" in somatic.columns and somatic["af"].notna().any():
+                st.divider()
+                st.markdown('<div class="section-header">🧬 Clonal Architecture</div>', unsafe_allow_html=True)
+                vaf_df = somatic[somatic["af"].notna()].copy()
+                vaf_df["clonal_tier"] = vaf_df["af"].apply(
+                    lambda v: "Clonal (VAF ≥ 0.4)" if v >= 0.4 else (
+                        "Subclonal (0.1–0.4)" if v >= 0.1 else "Rare (< 0.1)"
+                    )
+                )
+                tier_colors = {
+                    "Clonal (VAF ≥ 0.4)": "#dc2626",
+                    "Subclonal (0.1–0.4)": "#ea580c",
+                    "Rare (< 0.1)": "#16a34a",
+                }
+                tier_counts = vaf_df["clonal_tier"].value_counts().reset_index()
+                tier_counts.columns = ["Tier", "Count"]
+                ca1, ca2 = st.columns(2)
+                with ca1:
+                    fig_pie = px.pie(tier_counts, names="Tier", values="Count",
+                                     color="Tier", color_discrete_map=tier_colors,
+                                     title="Clonal Composition")
+                    st.plotly_chart(fig_pie, width="stretch")
+                with ca2:
+                    fig_vaf = px.histogram(vaf_df, x="af", color="clonal_tier",
+                                           color_discrete_map=tier_colors,
+                                           nbins=40, title="VAF Distribution by Clonal Tier",
+                                           labels={"af": "Variant Allele Frequency"})
+                    st.plotly_chart(fig_vaf, width="stretch")
             st.download_button("⬇️ Download Somatic Variants (CSV)",
                                disp.to_csv(index=False).encode(),
                                "somatic_variants.csv", "text/csv")

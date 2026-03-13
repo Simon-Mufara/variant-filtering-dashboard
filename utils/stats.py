@@ -102,3 +102,45 @@ def clinvar_significance(df: pd.DataFrame) -> pd.DataFrame:
             "Disease": clndn,
         })
     return pd.DataFrame(records)
+
+
+def allele_balance_stats(df: pd.DataFrame) -> pd.DataFrame:
+    """Compute allele balance (AB) per variant if AD/AO columns present."""
+    import re
+    if "info_raw" not in df.columns:
+        return pd.DataFrame()
+    records = []
+    for _, row in df.iterrows():
+        info = str(row.get("info_raw", ""))
+        m = re.search(r"AD=(\d+),(\d+)", info)
+        if m:
+            ref_d, alt_d = int(m.group(1)), int(m.group(2))
+            total = ref_d + alt_d
+            ab = round(alt_d / total, 3) if total > 0 else None
+            records.append({"chrom": row.get("chrom", ""), "position": row.get("position", 0),
+                             "ref_depth": ref_d, "alt_depth": alt_d, "allele_balance": ab})
+    return pd.DataFrame(records) if records else pd.DataFrame()
+
+
+def variant_density(df: pd.DataFrame, bin_size_mb: int = 10) -> pd.DataFrame:
+    """Count variants per genomic bin (Mb) per chromosome."""
+    if "chrom" not in df.columns or "position" not in df.columns:
+        return pd.DataFrame()
+    d = df[["chrom", "position"]].copy()
+    d["bin"] = (d["position"] // (bin_size_mb * 1_000_000)) * bin_size_mb
+    return d.groupby(["chrom", "bin"]).size().reset_index(name="count")
+
+
+def missingness_per_sample(df: pd.DataFrame) -> pd.DataFrame:
+    """Per-sample missingness rate."""
+    sample_cols = [c for c in df.columns if c.startswith("sample_") and c.endswith("_GT")]
+    if not sample_cols:
+        return pd.DataFrame()
+    records = []
+    for col in sample_cols:
+        sample = col.replace("sample_", "").replace("_GT", "")
+        gts = df[col].astype(str)
+        missing = gts.str.contains(r"\.", regex=True).sum()
+        records.append({"sample": sample, "total": len(df),
+                        "missing": int(missing), "missingness_pct": round(missing / len(df) * 100, 2)})
+    return pd.DataFrame(records)

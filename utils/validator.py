@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from typing import Tuple
 
-MAX_FILE_SIZE_MB = 500
+MAX_FILE_SIZE_MB = 10240
 _VCF_HEADER_RE = re.compile(r"^##fileformat=VCFv", re.IGNORECASE)
 _CHROM_HEADER_RE = re.compile(r"^#CHROM", re.IGNORECASE)
 

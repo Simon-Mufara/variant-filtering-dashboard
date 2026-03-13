@@ -15,7 +15,7 @@ import datetime
 import pandas as pd
 
 try:
-    from fpdf import FPDF, FPDFException  # fpdf2
+    from fpdf import FPDF  # fpdf2
     _FPDF_AVAILABLE = True
 except ImportError:
     _FPDF_AVAILABLE = False

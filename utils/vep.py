@@ -22,13 +22,15 @@ import requests
 import pandas as pd
 from utils.logger import log
 
-VEP_URL = "https://rest.ensembl.org/vep/human/region"
+VEP_URL_GRCH38 = "https://rest.ensembl.org/vep/human/region"
+VEP_URL_GRCH37 = "https://grch37.rest.ensembl.org/vep/human/region"
+VEP_URL = VEP_URL_GRCH38
 HEADERS = {"Content-Type": "application/json", "Accept": "application/json"}
 BATCH_SIZE = 100
 RATE_DELAY = 0.1   # seconds between batches (be a good citizen)
 
 
-def annotate_vep(df: pd.DataFrame, max_variants: int = 100) -> pd.DataFrame:
+def annotate_vep(df: pd.DataFrame, max_variants: int = 100, genome_build: str = "GRCh38") -> pd.DataFrame:
     """Run Ensembl VEP on a VCF DataFrame (up to max_variants rows).
 
     Adds columns: vep_consequence, vep_impact, vep_gene, vep_symbol,
@@ -38,13 +40,14 @@ def annotate_vep(df: pd.DataFrame, max_variants: int = 100) -> pd.DataFrame:
     if df.empty:
         return df
 
+    url = VEP_URL_GRCH37 if "GRCh37" in genome_build else VEP_URL_GRCH38
     subset = df.head(max_variants).copy()
     variants = _build_vep_input(subset)
 
     results = {}
     for i in range(0, len(variants), BATCH_SIZE):
         batch = variants[i: i + BATCH_SIZE]
-        batch_results = _query_vep(batch)
+        batch_results = _query_vep(batch, url=url)
         results.update(batch_results)
         time.sleep(RATE_DELAY)
 
@@ -71,11 +74,11 @@ def _build_vep_input(df: pd.DataFrame) -> list[str]:
     return variants
 
 
-def _query_vep(variants: list[str]) -> dict:
+def _query_vep(variants: list[str], url: str = VEP_URL_GRCH38) -> dict:
     """POST to VEP API and return dict keyed by variant string."""
     try:
         resp = requests.post(
-            VEP_URL,
+            url,
             headers=HEADERS,
             json={"variants": variants},
             timeout=30,

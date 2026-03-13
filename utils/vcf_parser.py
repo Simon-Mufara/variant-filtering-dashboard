@@ -103,6 +103,12 @@ def load_vcf(vcf_file) -> pd.DataFrame:
                 "info_raw": info_raw,  # kept for SnpEff/ClinVar downstream parsing
             }
 
+            # SV-specific fields
+            if variant_type == "SV":
+                row["svtype"] = info_dict.get("SVTYPE", alt.strip("<>") if alt.startswith("<") else "")
+                row["svlen"] = _parse_int(info_dict.get("SVLEN", None), default=0)
+                row["sv_end"] = _parse_int(info_dict.get("END", None), default=0)
+
             # Genotype columns
             for i, sample in enumerate(samples):
                 gt = "."
