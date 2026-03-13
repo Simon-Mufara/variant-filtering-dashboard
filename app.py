@@ -7,8 +7,9 @@ import plotly.express as px
 
 from config import DEFAULT_MIN_QUAL, DEFAULT_MIN_DP
 from utils.auth import require_auth
-from utils.vcf_parser import load_vcf
+# load_vcf imported via format_parser internally
 from utils.validator import validate_vcf
+from utils.format_parser import load_any, supported_extensions
 from utils.filters import apply_filters
 from utils.compare import compare_vcfs, concordance_by_type
 from utils.snpeff import parse_snpeff, impact_summary, top_affected_genes, IMPACT_COLORS
@@ -103,16 +104,16 @@ st.markdown("""
 # HELPERS
 # ═══════════════════════════════════════════════════════════════════════════════
 
-@st.cache_data(show_spinner="Parsing VCF…")
+@st.cache_data(show_spinner="Parsing file…")
 def _cached_load_path(path: str) -> pd.DataFrame:
-    log.info("Loading VCF from path: %s", path)
-    return load_vcf(path)
+    log.info("Loading file from path: %s", path)
+    return load_any(open(path, "rb"), path)
 
 
-@st.cache_data(show_spinner="Parsing VCF…")
+@st.cache_data(show_spinner="Parsing file…")
 def _cached_load_bytes(data: bytes, name: str) -> pd.DataFrame:
-    log.info("Loading uploaded VCF: %s (%d bytes)", name, len(data))
-    return load_vcf(io.BytesIO(data))
+    log.info("Loading uploaded file: %s (%d bytes)", name, len(data))
+    return load_any(io.BytesIO(data), name)
 
 
 @st.cache_data(show_spinner=False)
@@ -130,19 +131,29 @@ def _cached_annotate_genes(df: pd.DataFrame) -> pd.DataFrame:
     return annotate_with_genes(df)
 
 
-def _load_with_validation(vcf_file_or_path, label: str = "VCF") -> pd.DataFrame:
-    ok, err = validate_vcf(vcf_file_or_path)
-    if not ok:
-        st.error(f"❌ **{label} validation failed:** {err}")
-        log.error("VCF validation failed for %s: %s", label, err)
-        st.stop()
+def _load_with_validation(file_or_path, label: str = "file") -> pd.DataFrame:
+    """Load any supported variant file format with validation."""
+    filename = ""
+    if hasattr(file_or_path, "name"):
+        filename = file_or_path.name
+    elif isinstance(file_or_path, str):
+        filename = os.path.basename(file_or_path)
+
+    # Only run VCF-specific header validation for VCF files
+    is_vcf = filename.lower().endswith((".vcf", ".vcf.gz")) or not filename
+    if is_vcf:
+        ok, err = validate_vcf(file_or_path)
+        if not ok:
+            st.error(f"❌ **{label} validation failed:** {err}")
+            log.error("Validation failed for %s: %s", label, err)
+            st.stop()
     try:
-        if hasattr(vcf_file_or_path, "read"):
-            data = vcf_file_or_path.read()
-            if hasattr(vcf_file_or_path, "seek"):
-                vcf_file_or_path.seek(0)
-            return _cached_load_bytes(data, vcf_file_or_path.name)
-        return _cached_load_path(str(vcf_file_or_path))
+        if hasattr(file_or_path, "read"):
+            data = file_or_path.read()
+            if hasattr(file_or_path, "seek"):
+                file_or_path.seek(0)
+            return _cached_load_bytes(data, filename)
+        return _cached_load_path(str(file_or_path))
     except Exception as exc:
         st.error(f"❌ Failed to parse {label}: {exc}")
         log.exception("Parse error for %s", label)
@@ -178,7 +189,7 @@ with st.sidebar:
       <div style="font-size:2.4rem">🧬</div>
       <div style="color:#93c5fd; font-size:1.1rem; font-weight:700; letter-spacing:.5px">
         VARIANT ANALYSIS SUITE</div>
-      <div style="color:#64748b; font-size:.75rem; margin-top:.2rem">v2.0 · Industry Edition</div>
+      <div style="color:#64748b; font-size:.75rem; margin-top:.2rem">v2.1 · Industry Edition</div>
     </div>
     """, unsafe_allow_html=True)
     st.divider()
@@ -197,9 +208,36 @@ with st.sidebar:
     )
     st.divider()
 
+    # ── Credits ───────────────────────────────────────────────────────────────
+    st.markdown("""
+    <div style="font-size:.72rem; color:#64748b; line-height:1.6; padding: .4rem 0 .6rem;">
+      <div style="color:#93c5fd; font-weight:600; margin-bottom:.3rem; font-size:.78rem;">
+        👤 Developed by</div>
+      <div style="color:#cbd5e1; font-weight:500;">Simon Mufara</div>
+      <div style="margin-top:.3rem;">
+        Bioinformatics · Machine Learning<br>Cancer Genomics Research
+      </div>
+      <div style="margin-top:.5rem;">
+        <a href="https://github.com/Simon-Mufara/variant-filtering-dashboard"
+           style="color:#60a5fa; text-decoration:none;">
+          🐙 GitHub Repository
+        </a>
+      </div>
+      <div style="margin-top:.4rem; border-top:1px solid #1e293b; padding-top:.4rem;">
+        Built with Streamlit · Plotly · Ensembl VEP<br>
+        gnomAD v4 · SnpEff · ACMG guidelines
+      </div>
+      <div style="margin-top:.4rem; color:#475569; font-size:.68rem;">
+        ⚕️ For research use only — not for clinical diagnosis
+      </div>
+    </div>
+    """, unsafe_allow_html=True)
+
 
 EX_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "example.vcf")
 EX_ANNOTATED_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "example_annotated.vcf")
+EX_MAF_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "example.maf")
+_UPLOAD_TYPES = supported_extensions()
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -210,17 +248,31 @@ if mode == "🔬 Single VCF":
 
     with st.sidebar:
         with st.expander("📂 Data Input", expanded=True):
-            vcf_file   = st.file_uploader("Upload VCF", type=["vcf", "vcf.gz"],
-                                          help="Supports plain or gzipped VCF files up to 500 MB")
-            use_example = st.checkbox("Use example VCF", value=True)
-            use_annotated = st.checkbox("Use annotated example (SnpEff + ClinVar)", value=False,
-                                        help="Loads a VCF pre-annotated with SnpEff ANN and ClinVar CLNSIG fields — enables the SnpEff and ClinVar tabs")
+            vcf_file = st.file_uploader(
+                "Upload variant file",
+                type=_UPLOAD_TYPES,
+                help="Accepts: VCF, VCF.GZ, MAF (TCGA), TSV, CSV variant tables"
+            )
+            st.caption("Supported: VCF · VCF.GZ · MAF · TSV · CSV")
+            st.divider()
+            ex_choice = st.radio(
+                "Or use a built-in example",
+                ["Plain VCF", "Annotated VCF (SnpEff + ClinVar)", "MAF (TCGA cancer)", "None"],
+                index=0,
+                help="Pre-loaded examples for testing each tab"
+            )
 
-        _ex = EX_ANNOTATED_PATH if (use_annotated and not vcf_file) else EX_PATH
-        df_raw = _safe_load(vcf_file, use_example or use_annotated, _ex, "VCF")
+        _ex_map = {
+            "Plain VCF": EX_PATH,
+            "Annotated VCF (SnpEff + ClinVar)": EX_ANNOTATED_PATH,
+            "MAF (TCGA cancer)": EX_MAF_PATH,
+        }
+        _ex_path = _ex_map.get(ex_choice)
+        use_example = (ex_choice != "None") and not vcf_file
+        df_raw = _safe_load(vcf_file, use_example, _ex_path or EX_PATH, "variant file")
         if df_raw is None or df_raw.empty or "chrom" not in df_raw.columns:
             st.title("🧬 Variant Analysis Suite")
-            st.info("Upload a VCF file or enable **Use example VCF** to begin.")
+            st.info("Upload a variant file (VCF, MAF, TSV/CSV) or choose a built-in example to begin.")
             st.stop()
 
         with st.expander("🔧 Variant Filters", expanded=True):
@@ -669,7 +721,7 @@ elif mode == "⚖️ Multi-VCF Compare":
             n_vcfs = st.slider("Number of VCFs to compare", 2, 10, 2)
             uploaded = []
             for i in range(n_vcfs):
-                f = st.file_uploader(f"VCF {chr(65+i)}", type=["vcf","vcf.gz"], key=f"cmp_{i}")
+                f = st.file_uploader(f"VCF {chr(65+i)}", type=_UPLOAD_TYPES, key=f"cmp_{i}")
                 uploaded.append(f)
             use_demo = st.checkbox("Use example VCF for all slots", value=True)
 
@@ -798,9 +850,9 @@ elif mode == "👨‍👩‍👧 Trio Analysis":
 
     with st.sidebar:
         with st.expander("📂 Upload Trio VCFs", expanded=True):
-            f_proband = st.file_uploader("👶 Proband (affected)", type=["vcf","vcf.gz"], key="trio_prob")
-            f_mother  = st.file_uploader("👩 Mother",              type=["vcf","vcf.gz"], key="trio_mom")
-            f_father  = st.file_uploader("👨 Father",              type=["vcf","vcf.gz"], key="trio_dad")
+            f_proband = st.file_uploader("👶 Proband (affected)", type=_UPLOAD_TYPES, key="trio_prob")
+            f_mother  = st.file_uploader("👩 Mother",              type=_UPLOAD_TYPES, key="trio_mom")
+            f_father  = st.file_uploader("👨 Father",              type=_UPLOAD_TYPES, key="trio_dad")
             use_demo  = st.checkbox("Use example for all (demo)", value=True)
 
     st.title("👨‍👩‍👧 Trio Analysis — De Novo & Recessive Variant Detection")
@@ -865,8 +917,8 @@ elif mode == "🧫 Somatic (Tumor/Normal)":
 
     with st.sidebar:
         with st.expander("📂 Upload Paired VCFs", expanded=True):
-            f_tumor  = st.file_uploader("🔬 Tumor VCF",  type=["vcf","vcf.gz"], key="som_tumor")
-            f_normal = st.file_uploader("✅ Normal VCF", type=["vcf","vcf.gz"], key="som_normal")
+            f_tumor  = st.file_uploader("🔬 Tumor VCF",  type=_UPLOAD_TYPES, key="som_tumor")
+            f_normal = st.file_uploader("✅ Normal VCF", type=_UPLOAD_TYPES, key="som_normal")
             use_demo = st.checkbox("Use example for both (demo)", value=True)
 
     st.title("🧫 Somatic Variant Analysis — Tumor vs Normal")
@@ -929,7 +981,7 @@ elif mode == "📦 Batch Pipeline":
             "and merged into a single annotated CSV download.")
 
     batch_files = st.file_uploader("Upload VCF files (up to 20)",
-                                   type=["vcf","vcf.gz"],
+                                   type=_UPLOAD_TYPES,
                                    accept_multiple_files=True,
                                    key="batch_upload")
 
