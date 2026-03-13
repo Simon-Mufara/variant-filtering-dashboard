@@ -32,21 +32,21 @@ def validate_vcf(vcf_file) -> Tuple[bool, str]:
         if not lines:
             return False, "File appears to be empty."
 
-        first_non_empty = next((l for l in lines if l.strip()), "")
+        first_non_empty = next((ln for ln in lines if ln.strip()), "")
         if not first_non_empty.startswith("##"):
             return False, (
                 "File does not start with VCF meta-information lines (##). "
                 "Make sure this is a valid VCF file."
             )
 
-        has_fileformat = any(_VCF_HEADER_RE.match(l) for l in lines[:20])
+        has_fileformat = any(_VCF_HEADER_RE.match(ln) for ln in lines[:20])
         if not has_fileformat:
             return False, (
                 "Missing '##fileformat=VCFv4.x' header. "
                 "The file may not be a valid VCF."
             )
 
-        has_chrom = any(_CHROM_HEADER_RE.match(l) for l in lines)
+        has_chrom = any(_CHROM_HEADER_RE.match(ln) for ln in lines)
         if not has_chrom:
             return False, (
                 "No '#CHROM' column header found. "
@@ -77,7 +77,7 @@ def validate_vcf(vcf_file) -> Tuple[bool, str]:
 
 def _peek(vcf_file, n_bytes: int) -> str:
     """Read the first n_bytes as a decoded string without consuming the stream."""
-    import gzip, io
+    import gzip
 
     if hasattr(vcf_file, "read"):
         raw = vcf_file.read(n_bytes)

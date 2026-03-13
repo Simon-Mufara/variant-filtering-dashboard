@@ -53,10 +53,6 @@ def compare_vcfs(df_a: pd.DataFrame, df_b: pd.DataFrame) -> dict:
 
 def concordance_by_type(df_a: pd.DataFrame, df_b: pd.DataFrame) -> pd.DataFrame:
     """Concordance breakdown per variant type."""
-    keys_a = _variant_key(df_a)
-    keys_b = _variant_key(df_b)
-    shared_keys = set(keys_a) & set(keys_b)
-
     rows = []
     for vtype in sorted(set(df_a["variant_type"].dropna()) | set(df_b["variant_type"].dropna())):
         a = df_a[df_a["variant_type"] == vtype]
