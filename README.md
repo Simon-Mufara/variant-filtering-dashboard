@@ -4,7 +4,7 @@
 [![Python 3.11](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/)
 [![Streamlit](https://img.shields.io/badge/Streamlit-1.x-red.svg)](https://streamlit.io)
 
-> **Live app →** https://variant-filtering-dashboard-kwmkz2wkdei9wntqht4nst.streamlit.app/
+
 
 An industry-grade, interactive dashboard for end-to-end genomic variant analysis — from raw VCF to clinical interpretation.
 
