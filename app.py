@@ -440,11 +440,11 @@ if mode == "🔬 Single VCF":
     # ── 0: Overview ───────────────────────────────────────────────────────────
     with tabs[0]:
         c1, c2 = st.columns(2)
-        c1.plotly_chart(chromosome_plot(df), width="stretch")
-        c2.plotly_chart(variant_type_plot(df), width="stretch")
+        c1.plotly_chart(chromosome_plot(df), width="stretch", key="chrom_plot")
+        c2.plotly_chart(variant_type_plot(df), width="stretch", key="variant_type_plot")
         c3, c4 = st.columns(2)
-        c3.plotly_chart(quality_distribution(df), width="stretch")
-        c4.plotly_chart(tstv_plot(df), width="stretch")
+        c3.plotly_chart(quality_distribution(df), width="stretch", key="quality_dist")
+        c4.plotly_chart(tstv_plot(df), width="stretch", key="tstv_plot")
         # SV summary
         if "variant_type" in df.columns and (df["variant_type"] == "SV").any():
             st.divider()
@@ -461,19 +461,19 @@ if mode == "🔬 Single VCF":
                 chrom_counts = sv_df["chrom"].value_counts().reset_index()
                 chrom_counts.columns = ["Chromosome", "SV Count"]
                 fig_sv = px.bar(chrom_counts, x="Chromosome", y="SV Count", title="SVs per Chromosome")
-                st.plotly_chart(fig_sv, width="stretch")
+                st.plotly_chart(fig_sv, width="stretch", key="sv_chrom_plot")
             if "svlen" in sv_df.columns and sv_df["svlen"].abs().gt(0).any():
                 sv_df["sv_size"] = sv_df["svlen"].abs()
                 fig_size = px.histogram(sv_df[sv_df["sv_size"] > 0], x="sv_size", nbins=30,
                                         title="SV Size Distribution (bp)", log_x=True)
-                st.plotly_chart(fig_size, width="stretch")
+                st.plotly_chart(fig_size, width="stretch", key="sv_size_plot")
 
     # ── 1: Distributions ──────────────────────────────────────────────────────
     with tabs[1]:
         c1, c2 = st.columns(2)
-        c1.plotly_chart(depth_distribution(df), width="stretch")
+        c1.plotly_chart(depth_distribution(df), width="stretch", key="depth_dist")
         if "af" in df.columns and df["af"].notna().any():
-            c2.plotly_chart(af_scatter(df), width="stretch")
+            c2.plotly_chart(af_scatter(df), width="stretch", key="af_scatter")
         else:
             c2.info("AF data not available in this VCF.")
 
@@ -482,7 +482,7 @@ if mode == "🔬 Single VCF":
         st.markdown('<div class="section-header">Positional Variant Track</div>', unsafe_allow_html=True)
         if not df.empty and "chrom" in df.columns:
             chrom_sel = st.selectbox("Chromosome", sorted(df["chrom"].unique().tolist(), key=_chrom_sort_key))
-            st.plotly_chart(positional_track(df, chrom_sel), width="stretch")
+            st.plotly_chart(positional_track(df, chrom_sel), width="stretch", key="positional_track")
             st.divider()
             st.markdown('<div class="section-header">IGV Genome Browser</div>', unsafe_allow_html=True)
             col1, col2 = st.columns([2, 1])
@@ -548,7 +548,7 @@ if mode == "🔬 Single VCF":
                 fig = px.bar(tier_counts, x="Tier", y="Count", color="Tier",
                              color_discrete_map={"🔴 HIGH":"#dc2626","🟠 MEDIUM":"#ea580c","🟢 LOW":"#16a34a"},
                              title="Priority Tier Distribution")
-                st.plotly_chart(fig, width="stretch")
+                st.plotly_chart(fig, width="stretch", key="priority_tier_dist")
 
             st.divider()
             st.markdown("**Top 20 highest-priority variants**")
@@ -580,7 +580,7 @@ if mode == "🔬 Single VCF":
                 gene_counts = df[gene_col].value_counts().head(20).reset_index()
                 gene_counts.columns = ["Gene","Count"]
                 fig = px.bar(gene_counts, x="Gene", y="Count", title="Variants per Panel Gene")
-                st.plotly_chart(fig, width="stretch")
+                st.plotly_chart(fig, width="stretch", key="panel_gene_counts")
                 # OMIM links
                 st.markdown("**OMIM links for top genes:**")
                 for gene in gene_counts["Gene"].head(10):
@@ -616,14 +616,14 @@ if mode == "🔬 Single VCF":
                     if not impact_counts.empty:
                         fig = px.bar(impact_counts, x="Impact", y="Count", color="Impact",
                                      color_discrete_map=IMPACT_COLORS, title="VEP Impact Distribution")
-                        st.plotly_chart(fig, width="stretch")
+                        st.plotly_chart(fig, width="stretch", key="vep_impact_dist")
 
                 if "vep_symbol" in df.columns:
                     top_genes = df["vep_symbol"][df["vep_symbol"] != ""].value_counts().head(15).reset_index()
                     top_genes.columns = ["Gene","Count"]
                     if not top_genes.empty:
                         fig2 = px.bar(top_genes, x="Gene", y="Count", title="Top Affected Genes (VEP)")
-                        st.plotly_chart(fig2, width="stretch")
+                        st.plotly_chart(fig2, width="stretch", key="vep_top_genes")
 
                 st.download_button("⬇️ Download VEP Annotations (CSV)",
                                    vep_df.to_csv(index=False).encode(),
@@ -648,12 +648,12 @@ if mode == "🔬 Single VCF":
                 imp = impact_summary(ann_df)
                 fig = px.bar(imp, x="Impact", y="Count", color="Impact",
                              color_discrete_map=IMPACT_COLORS, title="Variants by Impact Level")
-                st.plotly_chart(fig, width="stretch")
+                st.plotly_chart(fig, width="stretch", key="snpeff_impact_dist")
             with c2:
                 genes = top_affected_genes(ann_df)
                 fig2  = px.bar(genes.head(15), x="Gene", y="Count", color="High Impact",
                                title="Most Frequently Affected Genes")
-                st.plotly_chart(fig2, width="stretch")
+                st.plotly_chart(fig2, width="stretch", key="snpeff_top_genes")
             st.dataframe(ann_df, width="stretch", height=380)
             st.download_button("⬇️ Download SnpEff Annotations (CSV)",
                                ann_df.to_csv(index=False).encode(),
@@ -682,7 +682,7 @@ if mode == "🔬 Single VCF":
             c1, c2 = st.columns(2)
             c1.plotly_chart(px.pie(sig_counts, names="Significance", values="Count",
                                    title="ClinVar Significance Distribution"),
-                            width="stretch")
+                            width="stretch", key="clinvar_sig_pie")
             pathogenic = clin_df[clin_df["ClinVar Significance"].str.contains("Pathogenic", case=False, na=False)]
             if not pathogenic.empty:
                 with c2:
@@ -703,11 +703,11 @@ if mode == "🔬 Single VCF":
             c1.plotly_chart(px.pie(acmg_counts, names="Classification", values="Count",
                                    color="Classification", color_discrete_map=COLOR_MAP,
                                    title="ACMG Classification Distribution"),
-                            width="stretch")
+                            width="stretch", key="acmg_class_pie")
             c2.plotly_chart(px.bar(acmg_counts, x="Classification", y="Count",
                                    color="Classification", color_discrete_map=COLOR_MAP,
                                    title="ACMG Classification Counts"),
-                            width="stretch")
+                            width="stretch", key="acmg_class_bar")
             st.warning("⚠️ ACMG-lite is a triage tool only. Not for clinical decision-making. "
                        "Confirm with [VarSome](https://varsome.com) or [InterVar](http://www.intervar.org/).")
             acmg_disp = df[["chrom","position","ref","alt","variant_type",
@@ -747,7 +747,7 @@ if mode == "🔬 Single VCF":
                 st.plotly_chart(px.bar(dpc, x="Chromosome", y="Mean Depth",
                                        hover_data=["Median Depth","Variant Count"],
                                        title="Mean Read Depth per Chromosome"),
-                                width="stretch")
+                                width="stretch", key="depth_per_chrom")
                 st.dataframe(dpc, width="stretch")
         with qc_tabs[1]:
             ab_df = allele_balance_stats(df)
@@ -760,7 +760,7 @@ if mode == "🔬 Single VCF":
                                       labels={"allele_balance": "Allele Balance (alt/(ref+alt))"})
                 fig_ab.add_vline(x=0.5, line_dash="dash", line_color="red",
                                  annotation_text="Expected het (0.5)")
-                st.plotly_chart(fig_ab, width="stretch")
+                st.plotly_chart(fig_ab, width="stretch", key="allele_balance_dist")
                 st.dataframe(ab_df, width="stretch")
         with qc_tabs[2]:
             dens_df = variant_density(df)
@@ -770,7 +770,7 @@ if mode == "🔬 Single VCF":
                 fig_dens = px.density_heatmap(dens_df, x="bin", y="chrom", z="count",
                                               title="Variant Density (10 Mb bins)",
                                               labels={"bin": "Genomic Position (Mb)", "chrom": "Chromosome", "count": "Variants"})
-                st.plotly_chart(fig_dens, width="stretch")
+                st.plotly_chart(fig_dens, width="stretch", key="variant_density")
                 st.dataframe(dens_df, width="stretch")
         with qc_tabs[3]:
             miss_df = missingness_per_sample(df)
@@ -780,7 +780,7 @@ if mode == "🔬 Single VCF":
                 fig_miss = px.bar(miss_df, x="sample", y="missingness_pct",
                                   title="Per-Sample Missingness (%)",
                                   labels={"missingness_pct": "Missingness %", "sample": "Sample"})
-                st.plotly_chart(fig_miss, width="stretch")
+                st.plotly_chart(fig_miss, width="stretch", key="sample_missingness")
                 st.dataframe(miss_df, width="stretch")
 
     # ── 11: Predictor Scores ──────────────────────────────────────────────────
@@ -948,7 +948,7 @@ elif mode == "⚖️ Multi-VCF Compare":
         colorbar=dict(title="Concordance %"),
     ))
     heatmap_fig.update_layout(title="Pairwise Concordance Heatmap")
-    st.plotly_chart(heatmap_fig, width="stretch")
+    st.plotly_chart(heatmap_fig, width="stretch", key="concordance_heatmap")
 
     # Per-VCF summary
     st.divider()
@@ -1008,7 +1008,7 @@ elif mode == "⚖️ Multi-VCF Compare":
             st.dataframe(conc_by_type, width="stretch")
             st.plotly_chart(px.bar(conc_by_type, x="Variant Type", y="Concordance (%)",
                                    color="Variant Type", title="Concordance by Variant Type"),
-                            width="stretch")
+                            width="stretch", key="concordance_by_type")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1119,8 +1119,8 @@ elif mode == "🧫 Somatic (Tumor/Normal)":
             disp = somatic.drop(columns=["info_raw"], errors="ignore")
             st.dataframe(disp, width="stretch", height=420)
             c1, c2 = st.columns(2)
-            c1.plotly_chart(variant_type_plot(somatic), width="stretch")
-            c2.plotly_chart(chromosome_plot(somatic), width="stretch")
+            c1.plotly_chart(variant_type_plot(somatic), width="stretch", key="somatic_variant_type_plot")
+            c2.plotly_chart(chromosome_plot(somatic), width="stretch", key="somatic_chrom_plot")
             # Clonal architecture VAF plot
             if "af" in somatic.columns and somatic["af"].notna().any():
                 st.divider()
@@ -1143,13 +1143,13 @@ elif mode == "🧫 Somatic (Tumor/Normal)":
                     fig_pie = px.pie(tier_counts, names="Tier", values="Count",
                                      color="Tier", color_discrete_map=tier_colors,
                                      title="Clonal Composition")
-                    st.plotly_chart(fig_pie, width="stretch")
+                    st.plotly_chart(fig_pie, width="stretch", key="clonal_composition_pie")
                 with ca2:
                     fig_vaf = px.histogram(vaf_df, x="af", color="clonal_tier",
                                            color_discrete_map=tier_colors,
                                            nbins=40, title="VAF Distribution by Clonal Tier",
                                            labels={"af": "Variant Allele Frequency"})
-                    st.plotly_chart(fig_vaf, width="stretch")
+                    st.plotly_chart(fig_vaf, width="stretch", key="vaf_distribution")
             st.download_button("⬇️ Download Somatic Variants (CSV)",
                                disp.to_csv(index=False).encode(),
                                "somatic_variants.csv", "text/csv")
