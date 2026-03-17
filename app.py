@@ -973,7 +973,7 @@ elif mode == "⚖️ Multi-VCF Compare":
     st.subheader("Side-by-Side Variant Type Distribution")
     plot_cols = st.columns(min(n, 4))
     for i, df_i in enumerate(dfs[:4]):
-        plot_cols[i].plotly_chart(variant_type_plot(df_i), width="stretch")
+        plot_cols[i].plotly_chart(variant_type_plot(df_i), width="stretch", key=f"variant_type_plot_{i}")
         plot_cols[i].caption(names[i][:25])
 
     # Pairwise detail tabs (first pair)
