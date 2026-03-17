@@ -1,115 +1,99 @@
 # 🧬 Variant Analysis Suite
 
-[![Python 3.11](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/)
-[![Streamlit](https://img.shields.io/badge/Streamlit-1.x-red.svg)](https://streamlit.io)
+[![Live App](https://img.shields.io/badge/Live%20App-Open%20on%20Streamlit-FF4B4B?logo=streamlit&logoColor=white)](https://simon-variants.streamlit.app)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![Domain](https://img.shields.io/badge/Domain-Genomic%20Variant%20Analysis-0A9396)](https://simon-variants.streamlit.app)
 
+Clinical and research-focused web application for end-to-end genomic variant analysis, built to convert raw VCF data into interpretable genomic and translational insights.
 
+## Live Platform
 
-An industry-grade, interactive dashboard for end-to-end genomic variant analysis — from raw VCF to clinical interpretation.
+- Application: https://simon-variants.streamlit.app
+- Repository: Simon-Mufara/variant-filtering-dashboard
+- Current status: deployed and active
 
----
+## What Problem This App Solves
 
-## ✨ Features
+Genomic variant files are information-dense but difficult to interpret consistently across teams. Most workflows require command-line expertise, custom scripts, and manual annotation lookups — creating bottlenecks for researchers, students, and clinicians who need answers, not code.
 
-### 🔬 Single VCF Analysis (10 tabs)
-| Tab | Description |
-|-----|-------------|
-| 📊 Overview | Variant counts, type breakdown, quality & Ts/Tv plots |
-| 📈 Distributions | Depth histogram, allele-frequency scatter |
-| 🗺️ Genome Browser | Per-chromosome positional track + IGV Web App launcher |
-| 👥 Multi-Sample | Per-sample genotype table and distribution charts |
-| 🧪 SnpEff | Functional annotation from `ANN=` INFO field — impact levels, top genes |
-| 🏥 ClinVar | CLNSIG/CLNDN clinical significance from annotated VCFs |
-| 🧬 ACMG | ACMG-lite rules-based pathogenicity classification (PVS1/PS1/PM2/BA1…) |
-| 📉 Statistics | Comprehensive QC — Ts/Tv, het/hom, missingness, depth per chromosome |
-| 📋 Data Table | Download filtered variants as CSV or VCF |
-| 📄 Report | Generate a self-contained HTML report to share with colleagues |
+Variant Analysis Suite solves this by providing one guided platform that standardizes the full workflow from VCF upload to clinical interpretation and report generation.
 
-### ⚖️ Compare Two VCFs
-- Shared / unique variant counts with concordance %
-- Per-type concordance breakdown
-- Side-by-side quality and type distributions
+## What The App Does
 
-### 🧰 Annotation Overlays (sidebar toggles)
-- **Ensembl** — gene name lookup via REST API
-- **gnomAD** — population allele frequencies (first 50 variants)
-- **ACMG-lite** — rules-based pathogenicity scoring
+The platform delivers a complete 10-stage analysis experience:
 
----
+1. Upload and validation of VCF, VCF.GZ, MAF, TSV, and CSV files.
+2. Variant overview with counts, type breakdown, and quality metrics.
+3. Distribution plots for depth, allele frequency, and transition/transversion ratio.
+4. Genome browser with per-chromosome positional tracks and IGV integration.
+5. Multi-sample genotype comparison across individuals.
+6. Functional annotation via SnpEff impact levels and affected genes.
+7. Clinical significance lookup using ClinVar annotations.
+8. ACMG-lite pathogenicity classification.
+9. Comprehensive QC statistics including het/hom ratio and missingness.
+10. Report generation as a self-contained HTML file for sharing and collaboration.
 
-## 🚀 Quick Start
+## Key Capabilities
 
-```bash
-# 1. Clone
-git clone https://github.com/Simon-Mufara/variant-filtering-dashboard.git
-cd variant-filtering-dashboard
+- Handles single and multi-sample VCF files in a guided interface.
+- Compares two VCFs side-by-side with concordance metrics.
+- Overlays population frequency data from gnomAD for the first 50 variants.
+- Performs gene name resolution via the Ensembl REST API.
+- Applies ACMG-lite rules-based pathogenicity scoring with sidebar toggles.
+- Generates downloadable CSV and VCF exports from any filtered view.
+- Produces structured HTML reports for meetings and collaborations.
 
-# 2. Create environment
-conda create -n variant_dashboard python=3.11
-conda activate variant_dashboard
+## Outputs Available To Users
 
-# 3. Install dependencies
-pip install -r requirements.txt
+- Variant counts, type distributions, and quality summaries.
+- Per-chromosome positional tracks and genome browser view.
+- Multi-sample genotype tables and distribution charts.
+- SnpEff functional impact tables with top affected genes.
+- ClinVar clinical significance classifications.
+- ACMG-lite pathogenicity calls with supporting criteria.
+- Comprehensive QC report with Ts/Tv, depth, and missingness statistics.
+- Filtered variant table (CSV or VCF download).
+- Self-contained HTML report.
 
-# 4. Run
-streamlit run app.py
-# Opens at http://localhost:8501
-```
+## Who This Is For
 
----
+- Faculty research groups and genomics labs.
+- Clinical and translational research teams.
+- Postgraduate students and trainees in genomics.
+- Bioinformatics-supported wet-lab and sequencing projects.
 
-## 🧪 Running Tests
+## Analysis Modes
 
-```bash
-pytest tests/ -v
-# 39 tests — vcf_parser, filters, validator, ACMG
-```
+| Mode | Description |
+|------|-------------|
+| Single VCF | Full 10-tab analysis of one sample or multi-sample file |
+| Multi-VCF Compare | Side-by-side concordance and distribution comparison of two VCFs |
+| Trio Analysis | Family-based variant interpretation |
+| Somatic (Tumor/Normal) | Paired tumor-normal comparison |
+| Batch Pipeline | Process multiple files in sequence |
 
-CI runs automatically on every push via GitHub Actions.
+## Partnership Value
 
----
+- Standardized and reproducible variant analysis practice across projects.
+- Faster transition from raw sequencing data to interpretable results.
+- Better communication of findings to multidisciplinary audiences.
+- Training-friendly environment for onboarding students and new team members.
 
-## 📁 Project Structure
+## Technology
 
-```
-variant-filtering-dashboard/
-├── app.py                       # Streamlit entry point (10 tabs + Compare mode)
-├── config.py                    # Default thresholds and constants
-├── utils/
-│   ├── vcf_parser.py            # Pure-Python VCF parser (multi-sample, gzip)
-│   ├── filters.py               # NaN-safe filtering (quality, depth, AF, chrom, PASS)
-│   ├── plots.py                 # Plotly visualisations + Ensembl gene annotation
-│   ├── compare.py               # VCF-vs-VCF comparison & concordance
-│   ├── snpeff.py                # SnpEff ANN field parser — impact + gene tables
-│   ├── stats.py                 # Comprehensive QC stats + ClinVar parsing
-│   ├── acmg.py                  # ACMG-lite variant classification (PVS1/PS1/PM2/BA1…)
-│   ├── gnomad.py                # gnomAD GraphQL API population frequency lookup
-│   ├── report.py                # Self-contained HTML report generator
-│   ├── validator.py             # VCF file validation before parsing
-│   └── logger.py                # Centralised logging
-├── data/
-│   └── example.vcf              # Multi-sample VCF for demo/testing
-├── tests/
-│   ├── test_vcf_parser.py       # VCF parser unit tests
-│   ├── test_filters.py          # Filter unit tests
-│   └── test_validator_acmg.py   # Validator + ACMG unit tests
-├── .github/
-│   └── workflows/ci.yml         # GitHub Actions CI (pytest + flake8)
-├── .streamlit/
-│   └── config.toml              # 2 GB upload limit
-├── requirements.txt
-└── runtime.txt                  # python-3.11
-```
+- Streamlit
+- Plotly
+- Ensembl REST API
+- gnomAD GraphQL API
+- SnpEff annotation parsing
+- ClinVar clinical significance integration
+- ACMG-lite classification engine
 
----
+## Clinical Disclaimer
 
-## ⚠️ Clinical Disclaimer
+ACMG-lite is a simplified triage tool only. It does not replace clinical-grade tools such as VarSome, InterVar, or a certified clinical geneticist. Do not use for clinical decision-making.
 
-ACMG-lite is a simplified triage tool only. It does **not** replace clinical-grade tools such as [VarSome](https://varsome.com), [InterVar](http://www.intervar.org/), or a certified clinical geneticist. Do not use for clinical decision-making.
+## License
 
----
-
-## 📄 License
-
-MIT
-
+MIT License. See [LICENSE](LICENSE).
