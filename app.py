@@ -513,7 +513,7 @@ if mode == "🔬 Single VCF":
                 fig = px.bar(counts, x="Genotype", y="Count",
                              title=f"{sname} — Genotype Distribution",
                              color="Genotype")
-                st.plotly_chart(fig, width="stretch")
+                st.plotly_chart(fig, width="stretch", key=f"genotype_dist_{col}")
         else:
             st.info("No sample genotype columns found in this VCF.")
 
@@ -819,7 +819,7 @@ if mode == "🔬 Single VCF":
                     fig = px.histogram(df, x=col, nbins=50, title=title)
                     fig.add_vline(x=threshold, line_dash="dash", line_color="red",
                                   annotation_text=f"Threshold: {threshold}")
-                    st.plotly_chart(fig, width="stretch")
+                    st.plotly_chart(fig, width="stretch", key=f"predictor_dist_{col}")
 
     # ── 12: Data Table ────────────────────────────────────────────────────────
     with tabs[12]:
