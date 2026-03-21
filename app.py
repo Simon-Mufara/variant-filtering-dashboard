@@ -7,18 +7,7 @@ import pandas as pd
 import plotly.express as px
 
 from config import DEFAULT_MIN_QUAL, DEFAULT_MIN_DP
-from utils.auth import (
-    require_auth,
-    render_user_status,
-    available_modes,
-    create_user_account,
-    create_organization,
-    create_team,
-    list_users,
-    list_organizations,
-    list_teams,
-    set_user_active,
-)
+from utils import auth as auth_mod
 # load_vcf imported via format_parser internally
 from utils.validator import validate_vcf
 from utils.format_parser import load_any, supported_extensions
@@ -41,6 +30,39 @@ from utils.plots import (
     chromosome_plot, variant_type_plot, quality_distribution,
     depth_distribution, af_scatter, tstv_plot, positional_track, annotate_with_genes,
 )
+
+# Backward-compatible auth bindings (supports older deployed auth.py versions).
+require_auth = auth_mod.require_auth
+render_user_status = getattr(auth_mod, "render_user_status", lambda _ctx: None)
+available_modes = getattr(
+    auth_mod,
+    "available_modes",
+    lambda _role: [
+        "🔬 Single VCF",
+        "⚖️ Multi-VCF Compare",
+        "👨‍👩‍👧 Trio Analysis",
+        "🧫 Somatic (Tumor/Normal)",
+    ],
+)
+
+
+def _missing_auth_helper(name: str):
+    def _raise(*_args, **_kwargs):
+        raise RuntimeError(
+            f"Auth helper '{name}' is unavailable in this deployment. "
+            "Please pull latest code for utils/auth.py."
+        )
+
+    return _raise
+
+
+create_user_account = getattr(auth_mod, "create_user_account", _missing_auth_helper("create_user_account"))
+create_organization = getattr(auth_mod, "create_organization", _missing_auth_helper("create_organization"))
+create_team = getattr(auth_mod, "create_team", _missing_auth_helper("create_team"))
+list_users = getattr(auth_mod, "list_users", _missing_auth_helper("list_users"))
+list_organizations = getattr(auth_mod, "list_organizations", _missing_auth_helper("list_organizations"))
+list_teams = getattr(auth_mod, "list_teams", _missing_auth_helper("list_teams"))
+set_user_active = getattr(auth_mod, "set_user_active", _missing_auth_helper("set_user_active"))
 
 # ── Page config ───────────────────────────────────────────────────────────────
 st.set_page_config(
