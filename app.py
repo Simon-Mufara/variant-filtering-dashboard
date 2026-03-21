@@ -59,7 +59,7 @@ st.set_page_config(
 auth_ctx = require_auth()
 
 if "ui_theme_choice" not in st.session_state:
-    st.session_state["ui_theme_choice"] = "Auto"
+    st.session_state["ui_theme_choice"] = "Light"
 
 _UI_ICONS = {
     "app": "🧬",
@@ -96,38 +96,44 @@ def _resolve_theme_name(choice: str) -> str:
 def _inject_theme_css(theme_name: str) -> None:
     palette = {
         "light": {
-            "sidebar_bg": "#ffffff",
+            "page_bg": "linear-gradient(180deg, #f8fbff 0%, #eef4ff 100%)",
+            "sidebar_bg": "linear-gradient(180deg, #ffffff 0%, #f6f9ff 100%)",
             "sidebar_border": "#e2e8f0",
-            "sidebar_text": "#334155",
+            "sidebar_text": "#1e293b",
             "sidebar_heading": "#0f172a",
             "sidebar_muted": "#64748b",
-            "accent": "#2563eb",
-            "accent_soft": "#dbeafe",
+            "accent": "#1d4ed8",
+            "accent_soft": "linear-gradient(90deg, rgba(59,130,246,.16) 0%, rgba(14,165,233,.16) 100%)",
+            "accent_ring": "rgba(37, 99, 235, 0.15)",
             "metric_bg": "#ffffff",
             "metric_border": "#dbe3ef",
-            "tabs_bg": "#f8fafc",
-            "tabs_text": "#475569",
+            "tabs_bg": "#eaf1ff",
+            "tabs_text": "#334155",
             "tabs_active_bg": "#ffffff",
-            "tabs_active_text": "#1d4ed8",
+            "tabs_active_text": "#1e40af",
             "divider": "#e2e8f0",
             "section_text": "#0f172a",
+            "card_shadow": "0 6px 20px rgba(15, 23, 42, 0.08)",
         },
         "dark": {
+            "page_bg": "radial-gradient(circle at top, #0f172a 0%, #020617 56%)",
             "sidebar_bg": "linear-gradient(180deg, #0f172a 0%, #1e1b4b 100%)",
             "sidebar_border": "#1f2937",
-            "sidebar_text": "#cbd5e1",
-            "sidebar_heading": "#93c5fd",
-            "sidebar_muted": "#94a3b8",
-            "accent": "#60a5fa",
-            "accent_soft": "rgba(96, 165, 250, 0.14)",
-            "metric_bg": "#0f172a",
-            "metric_border": "#334155",
-            "tabs_bg": "#111827",
-            "tabs_text": "#cbd5e1",
-            "tabs_active_bg": "#1f2937",
-            "tabs_active_text": "#bfdbfe",
+            "sidebar_text": "#e2e8f0",
+            "sidebar_heading": "#bae6fd",
+            "sidebar_muted": "#a5b4fc",
+            "accent": "#38bdf8",
+            "accent_soft": "linear-gradient(90deg, rgba(56,189,248,.2) 0%, rgba(167,139,250,.2) 100%)",
+            "accent_ring": "rgba(56, 189, 248, 0.25)",
+            "metric_bg": "#111827",
+            "metric_border": "#374151",
+            "tabs_bg": "#1f2937",
+            "tabs_text": "#e5e7eb",
+            "tabs_active_bg": "#0f172a",
+            "tabs_active_text": "#7dd3fc",
             "divider": "#334155",
             "section_text": "#e2e8f0",
+            "card_shadow": "0 10px 24px rgba(2, 6, 23, 0.45)",
         },
     }[theme_name]
 
@@ -137,6 +143,12 @@ def _inject_theme_css(theme_name: str) -> None:
           @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
           html, body, [class*="css"] {{ font-family: 'Inter', sans-serif; }}
           .block-container {{ padding-top: 0.8rem; padding-bottom: 1rem; }}
+          [data-testid="stAppViewContainer"] {{
+            background: {palette["page_bg"]};
+          }}
+          [data-testid="stHeader"] {{
+            background: transparent;
+          }}
 
           section[data-testid="stSidebar"] {{
             background: {palette["sidebar_bg"]};
@@ -157,9 +169,10 @@ def _inject_theme_css(theme_name: str) -> None:
             padding: .7rem .8rem;
             background: {palette["accent_soft"]};
             margin-bottom: .5rem;
+            box-shadow: {palette["card_shadow"]};
           }}
-          .app-brand-icon {{ font-size: 1.6rem; margin-bottom: .2rem; }}
-          .app-brand-title {{ font-size: .95rem; font-weight: 700; color: {palette["sidebar_heading"]}; }}
+          .app-brand-icon {{ font-size: 1.8rem; margin-bottom: .2rem; }}
+          .app-brand-title {{ font-size: 1rem; font-weight: 700; color: {palette["sidebar_heading"]}; }}
           .app-brand-subtitle {{ font-size: .74rem; color: {palette["sidebar_muted"]}; }}
           .sidebar-note {{
             font-size: .75rem;
@@ -177,6 +190,7 @@ def _inject_theme_css(theme_name: str) -> None:
             background: {palette["accent_soft"]};
             font-size: .76rem;
             color: {palette["sidebar_text"]};
+            box-shadow: 0 0 0 1px {palette["accent_ring"]} inset;
           }}
 
           [data-testid="metric-container"] {{
@@ -184,22 +198,25 @@ def _inject_theme_css(theme_name: str) -> None:
             border: 1px solid {palette["metric_border"]};
             border-radius: 10px;
             padding: 0.8rem 1rem;
-            box-shadow: 0 1px 4px rgba(0,0,0,.08);
+            box-shadow: {palette["card_shadow"]};
+            backdrop-filter: blur(2px);
           }}
-          [data-testid="metric-container"] label {{ color: #64748b; font-size: .8rem; font-weight: 600; }}
+          [data-testid="metric-container"] label {{ color: #64748b; font-size: .8rem; font-weight: 600; letter-spacing: .2px; }}
           [data-testid="metric-container"] [data-testid="stMetricValue"] {{ color: {palette["section_text"]}; font-weight: 700; }}
 
           .stTabs [data-baseweb="tab-list"] {{
-            gap: 4px; background: {palette["tabs_bg"]}; border-radius: 8px; padding: 4px;
+            gap: 6px; background: {palette["tabs_bg"]}; border-radius: 10px; padding: 6px;
           }}
           .stTabs [data-baseweb="tab"] {{
-            border-radius: 6px; padding: .4rem .9rem; font-size: .85rem; font-weight: 500;
+            border-radius: 8px; padding: .45rem .95rem; font-size: .85rem; font-weight: 600;
             color: {palette["tabs_text"]};
+            border: 1px solid transparent;
           }}
           .stTabs [aria-selected="true"] {{
             background: {palette["tabs_active_bg"]} !important;
             color: {palette["tabs_active_text"]} !important;
-            box-shadow: 0 1px 4px rgba(0,0,0,.14);
+            border-color: {palette["accent_ring"]};
+            box-shadow: {palette["card_shadow"]};
             font-weight: 600;
           }}
 
@@ -210,7 +227,7 @@ def _inject_theme_css(theme_name: str) -> None:
           .tier-low {{ color: #16a34a; font-weight: 700; }}
           .section-header {{
             font-size: 1.1rem; font-weight: 700; color: {palette["section_text"]};
-            border-left: 4px solid {palette["accent"]}; padding-left: .6rem;
+            border-left: 4px solid {palette["accent"]}; padding-left: .6rem; border-radius: 2px;
             margin: 1rem 0 .5rem;
           }}
         </style>
