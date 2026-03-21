@@ -7,7 +7,18 @@ import pandas as pd
 import plotly.express as px
 
 from config import DEFAULT_MIN_QUAL, DEFAULT_MIN_DP
-from utils.auth import require_auth
+from utils.auth import (
+    require_auth,
+    render_user_status,
+    available_modes,
+    create_user_account,
+    create_organization,
+    create_team,
+    list_users,
+    list_organizations,
+    list_teams,
+    set_user_active,
+)
 # load_vcf imported via format_parser internally
 from utils.validator import validate_vcf
 from utils.format_parser import load_any, supported_extensions
@@ -31,9 +42,6 @@ from utils.plots import (
     depth_distribution, af_scatter, tstv_plot, positional_track, annotate_with_genes,
 )
 
-# ── Auth gate (password via st.secrets["APP_PASSWORD"]) ──────────────────────
-require_auth()
-
 # ── Page config ───────────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="Variant Analysis Suite",
@@ -47,59 +55,172 @@ st.set_page_config(
     },
 )
 
-# ── Global CSS ────────────────────────────────────────────────────────────────
-st.markdown("""
-<style>
-  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-  html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
-  .block-container { padding-top: 0.8rem; padding-bottom: 1rem; }
+# ── Auth gate (role-aware auth via Streamlit secrets) ────────────────────────
+auth_ctx = require_auth()
 
-  /* Sidebar */
-  section[data-testid="stSidebar"] { background: linear-gradient(180deg, #0f172a 0%, #1e1b4b 100%); }
-  section[data-testid="stSidebar"] .stMarkdown,
-  section[data-testid="stSidebar"] label,
-  section[data-testid="stSidebar"] .stSelectbox label,
-  section[data-testid="stSidebar"] p,
-  section[data-testid="stSidebar"] span { color: #cbd5e1 !important; }
-  section[data-testid="stSidebar"] h1,
-  section[data-testid="stSidebar"] h2,
-  section[data-testid="stSidebar"] h3 { color: #93c5fd !important; }
-  section[data-testid="stSidebar"] .stRadio label { color: #e2e8f0 !important; }
+if "ui_theme_choice" not in st.session_state:
+    st.session_state["ui_theme_choice"] = "Auto"
 
-  /* Metric cards */
-  [data-testid="metric-container"] {
-    background: white; border: 1px solid #e2e8f0;
-    border-radius: 10px; padding: 0.8rem 1rem;
-    box-shadow: 0 1px 4px rgba(0,0,0,.06);
-  }
-  [data-testid="metric-container"] label { color: #64748b; font-size: .8rem; font-weight: 600; }
-  [data-testid="metric-container"] [data-testid="stMetricValue"] { color: #1e293b; font-weight: 700; }
+_UI_ICONS = {
+    "app": "🧬",
+    "mode": "🧭",
+    "theme": "🎨",
+    "workspace": "🏢",
+    "data": "📁",
+    "filter": "⚙️",
+    "annotation": "🧪",
+}
 
-  /* Tabs */
-  .stTabs [data-baseweb="tab-list"] { gap: 4px; background: #f1f5f9;
-    border-radius: 8px; padding: 4px; }
-  .stTabs [data-baseweb="tab"] { border-radius: 6px; padding: .4rem .9rem;
-    font-size: .85rem; font-weight: 500; color: #64748b; }
-  .stTabs [aria-selected="true"] { background: white !important; color: #1e40af !important;
-    box-shadow: 0 1px 4px rgba(0,0,0,.1); font-weight: 600; }
+_MODE_DESCRIPTIONS = {
+    "🔬 Single VCF": "Focused deep-dive for one variant file with full annotation/QC tabs.",
+    "⚖️ Multi-VCF Compare": "Pairwise and multi-file concordance review for cohort comparison.",
+    "👨‍👩‍👧 Trio Analysis": "Family-based inheritance analysis for de novo and recessive candidates.",
+    "🧫 Somatic (Tumor/Normal)": "Tumor-normal subtraction workflow for putative somatic variants.",
+    "📦 Batch Pipeline": "Run batch workflows across multiple projects and cases.",
+    "🛠️ Admin Console": "Manage organisations, teams, users, and platform governance.",
+}
 
-  /* Dividers */
-  hr { border-color: #e2e8f0; }
 
-  /* Info boxes */
-  .stAlert { border-radius: 8px; }
+def _resolve_theme_name(choice: str) -> str:
+    if choice == "Light":
+        return "light"
+    if choice == "Dark":
+        return "dark"
+    try:
+        configured = str(st.get_option("theme.base") or "dark").lower()
+    except Exception:
+        configured = "dark"
+    return "light" if configured == "light" else "dark"
 
-  /* Priority tiers */
-  .tier-high   { color: #dc2626; font-weight: 700; }
-  .tier-medium { color: #ea580c; font-weight: 700; }
-  .tier-low    { color: #16a34a; font-weight: 700; }
 
-  /* Section headers */
-  .section-header { font-size: 1.1rem; font-weight: 700; color: #1e293b;
-                    border-left: 4px solid #3b82f6; padding-left: .6rem;
-                    margin: 1rem 0 .5rem; }
-</style>
-""", unsafe_allow_html=True)
+def _inject_theme_css(theme_name: str) -> None:
+    palette = {
+        "light": {
+            "sidebar_bg": "#ffffff",
+            "sidebar_border": "#e2e8f0",
+            "sidebar_text": "#334155",
+            "sidebar_heading": "#0f172a",
+            "sidebar_muted": "#64748b",
+            "accent": "#2563eb",
+            "accent_soft": "#dbeafe",
+            "metric_bg": "#ffffff",
+            "metric_border": "#dbe3ef",
+            "tabs_bg": "#f8fafc",
+            "tabs_text": "#475569",
+            "tabs_active_bg": "#ffffff",
+            "tabs_active_text": "#1d4ed8",
+            "divider": "#e2e8f0",
+            "section_text": "#0f172a",
+        },
+        "dark": {
+            "sidebar_bg": "linear-gradient(180deg, #0f172a 0%, #1e1b4b 100%)",
+            "sidebar_border": "#1f2937",
+            "sidebar_text": "#cbd5e1",
+            "sidebar_heading": "#93c5fd",
+            "sidebar_muted": "#94a3b8",
+            "accent": "#60a5fa",
+            "accent_soft": "rgba(96, 165, 250, 0.14)",
+            "metric_bg": "#0f172a",
+            "metric_border": "#334155",
+            "tabs_bg": "#111827",
+            "tabs_text": "#cbd5e1",
+            "tabs_active_bg": "#1f2937",
+            "tabs_active_text": "#bfdbfe",
+            "divider": "#334155",
+            "section_text": "#e2e8f0",
+        },
+    }[theme_name]
+
+    st.markdown(
+        f"""
+        <style>
+          @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+          html, body, [class*="css"] {{ font-family: 'Inter', sans-serif; }}
+          .block-container {{ padding-top: 0.8rem; padding-bottom: 1rem; }}
+
+          section[data-testid="stSidebar"] {{
+            background: {palette["sidebar_bg"]};
+            border-right: 1px solid {palette["sidebar_border"]};
+          }}
+          section[data-testid="stSidebar"] .stMarkdown,
+          section[data-testid="stSidebar"] label,
+          section[data-testid="stSidebar"] .stSelectbox label,
+          section[data-testid="stSidebar"] p,
+          section[data-testid="stSidebar"] span {{ color: {palette["sidebar_text"]} !important; }}
+          section[data-testid="stSidebar"] h1,
+          section[data-testid="stSidebar"] h2,
+          section[data-testid="stSidebar"] h3 {{ color: {palette["sidebar_heading"]} !important; }}
+
+          .app-brand {{
+            border: 1px solid {palette["sidebar_border"]};
+            border-radius: 12px;
+            padding: .7rem .8rem;
+            background: {palette["accent_soft"]};
+            margin-bottom: .5rem;
+          }}
+          .app-brand-icon {{ font-size: 1.6rem; margin-bottom: .2rem; }}
+          .app-brand-title {{ font-size: .95rem; font-weight: 700; color: {palette["sidebar_heading"]}; }}
+          .app-brand-subtitle {{ font-size: .74rem; color: {palette["sidebar_muted"]}; }}
+          .sidebar-note {{
+            font-size: .75rem;
+            color: {palette["sidebar_muted"]};
+            border-top: 1px solid {palette["sidebar_border"]};
+            padding-top: .55rem;
+            margin-top: .55rem;
+            line-height: 1.5;
+          }}
+          .mode-badge {{
+            margin-top: .3rem;
+            border: 1px solid {palette["sidebar_border"]};
+            border-radius: 8px;
+            padding: .45rem .55rem;
+            background: {palette["accent_soft"]};
+            font-size: .76rem;
+            color: {palette["sidebar_text"]};
+          }}
+
+          [data-testid="metric-container"] {{
+            background: {palette["metric_bg"]};
+            border: 1px solid {palette["metric_border"]};
+            border-radius: 10px;
+            padding: 0.8rem 1rem;
+            box-shadow: 0 1px 4px rgba(0,0,0,.08);
+          }}
+          [data-testid="metric-container"] label {{ color: #64748b; font-size: .8rem; font-weight: 600; }}
+          [data-testid="metric-container"] [data-testid="stMetricValue"] {{ color: {palette["section_text"]}; font-weight: 700; }}
+
+          .stTabs [data-baseweb="tab-list"] {{
+            gap: 4px; background: {palette["tabs_bg"]}; border-radius: 8px; padding: 4px;
+          }}
+          .stTabs [data-baseweb="tab"] {{
+            border-radius: 6px; padding: .4rem .9rem; font-size: .85rem; font-weight: 500;
+            color: {palette["tabs_text"]};
+          }}
+          .stTabs [aria-selected="true"] {{
+            background: {palette["tabs_active_bg"]} !important;
+            color: {palette["tabs_active_text"]} !important;
+            box-shadow: 0 1px 4px rgba(0,0,0,.14);
+            font-weight: 600;
+          }}
+
+          hr {{ border-color: {palette["divider"]}; }}
+          .stAlert {{ border-radius: 8px; }}
+          .tier-high {{ color: #dc2626; font-weight: 700; }}
+          .tier-medium {{ color: #ea580c; font-weight: 700; }}
+          .tier-low {{ color: #16a34a; font-weight: 700; }}
+          .section-header {{
+            font-size: 1.1rem; font-weight: 700; color: {palette["section_text"]};
+            border-left: 4px solid {palette["accent"]}; padding-left: .6rem;
+            margin: 1rem 0 .5rem;
+          }}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+_active_theme_name = _resolve_theme_name(st.session_state["ui_theme_choice"])
+_inject_theme_css(_active_theme_name)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -221,54 +342,75 @@ def _omim_link(gene: str) -> str:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 with st.sidebar:
-    st.markdown("""
-    <div style="text-align:center; padding: .5rem 0 1rem;">
-      <div style="font-size:2.4rem">🧬</div>
-      <div style="color:#93c5fd; font-size:1.1rem; font-weight:700; letter-spacing:.5px">
-        VARIANT ANALYSIS SUITE</div>
-      <div style="color:#64748b; font-size:.75rem; margin-top:.2rem">v3.0 · Pro Edition</div>
-    </div>
-    """, unsafe_allow_html=True)
+    st.markdown(
+        f"""
+        <div class="app-brand">
+          <div class="app-brand-icon">{_UI_ICONS["app"]}</div>
+          <div class="app-brand-title">Variant Analysis Suite</div>
+          <div class="app-brand-subtitle">v3.1 · Clinical Research Workspace</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.selectbox(
+        f"{_UI_ICONS['theme']} Interface Theme",
+        ["Auto", "Light", "Dark"],
+        key="ui_theme_choice",
+        help="Use Light for a white interface, Dark for low-light, or Auto to follow app base theme.",
+    )
+    render_user_status(auth_ctx)
     st.divider()
 
-    MODE_ICONS = {
-        "🔬 Single VCF": "🔬 Single VCF",
-        "⚖️ Multi-VCF Compare": "⚖️ Multi-VCF Compare",
-        "👨‍👩‍👧 Trio Analysis": "👨‍👩‍👧 Trio Analysis",
-        "🧫 Somatic (Tumor/Normal)": "🧫 Somatic (Tumor/Normal)",
-        "📦 Batch Pipeline": "📦 Batch Pipeline",
-    }
+    with st.expander(f"{_UI_ICONS['workspace']} Workspace Settings", expanded=False):
+        st.text_input("Organisation", key="workspace_org", placeholder="e.g. School of Health Sciences")
+        st.text_input("Team", key="workspace_team", placeholder="e.g. Cancer Genomics Lab")
+        st.text_input("Project", key="workspace_project", placeholder="e.g. Variant Review")
+        st.text_input("Case / Batch ID", key="workspace_case_id", placeholder="optional")
+
+    st.divider()
+
+    allowed_modes = available_modes(auth_ctx.role)
     mode = st.radio(
-        "**Analysis Mode**",
-        list(MODE_ICONS.keys()),
+        f"**{_UI_ICONS['mode']} Analysis Mode**",
+        allowed_modes,
         label_visibility="visible",
     )
+    st.markdown(
+        f'<div class="mode-badge">{_MODE_DESCRIPTIONS.get(mode, "Analysis workflow selected.")}</div>',
+        unsafe_allow_html=True,
+    )
+    if auth_ctx.role == "individual":
+        st.caption("Role access: Individual users can run Single VCF workflows.")
+    elif auth_ctx.role == "team_member":
+        st.caption("Role access: Team users can run collaborative analysis workflows.")
+    elif auth_ctx.role == "org_admin":
+        st.caption("Role access: Organisation admins can run team workflows and batch pipelines.")
+    else:
+        st.caption("Role access: Admin users can manage platform settings and all workflows.")
     st.divider()
 
     # ── Credits ───────────────────────────────────────────────────────────────
-    st.markdown("""
-    <div style="font-size:.72rem; color:#64748b; line-height:1.6; padding: .4rem 0 .6rem;">
-      <div style="color:#93c5fd; font-weight:600; margin-bottom:.3rem; font-size:.78rem;">
-        👤 Developed by</div>
-      <div style="color:#cbd5e1; font-weight:500;">Simon Mufara</div>
-      <div style="margin-top:.3rem;">
-        Bioinformatics · Machine Learning<br>Cancer Genomics Research
-      </div>
-      <div style="margin-top:.5rem;">
-        <a href="https://github.com/Simon-Mufara/variant-filtering-dashboard"
-           style="color:#60a5fa; text-decoration:none;">
-          🐙 GitHub Repository
-        </a>
-      </div>
-      <div style="margin-top:.4rem; border-top:1px solid #1e293b; padding-top:.4rem;">
-        Built with Streamlit · Plotly · Ensembl VEP<br>
-        gnomAD v4 · SnpEff · ACMG guidelines
-      </div>
-      <div style="margin-top:.4rem; color:#475569; font-size:.68rem;">
-        ⚕️ For research use only — not for clinical diagnosis
-      </div>
-    </div>
-    """, unsafe_allow_html=True)
+    st.markdown(
+        """
+        <div class="sidebar-note">
+          <div style="font-weight:600; margin-bottom:.2rem;">👤 Developed by Simon Mufara</div>
+          Bioinformatics · Machine Learning · Cancer Genomics<br>
+          <a href="https://github.com/Simon-Mufara/variant-filtering-dashboard" style="text-decoration:none;">
+            🔗 GitHub Repository
+          </a><br>
+          Built with Streamlit · Plotly · Ensembl VEP · gnomAD · SnpEff · ACMG<br>
+          ⚕️ Research use only — not for clinical diagnosis
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+workspace_bits = [
+    st.session_state.get("workspace_org", "").strip(),
+    st.session_state.get("workspace_team", "").strip(),
+    st.session_state.get("workspace_project", "").strip(),
+]
+workspace_label = " / ".join([v for v in workspace_bits if v])
 
 
 EX_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "example.vcf")
@@ -284,7 +426,7 @@ _UPLOAD_TYPES = supported_extensions()
 if mode == "🔬 Single VCF":
 
     with st.sidebar:
-        with st.expander("📂 Data Input", expanded=True):
+        with st.expander(f"{_UI_ICONS['data']} Data Input", expanded=True):
             vcf_file = st.file_uploader(
                 "Upload variant file",
                 type=_UPLOAD_TYPES,
@@ -323,7 +465,7 @@ if mode == "🔬 Single VCF":
             st.info("Upload a variant file (VCF, MAF, TSV/CSV) or choose a built-in example to begin.")
             st.stop()
 
-        with st.expander("🔧 Variant Filters", expanded=True):
+        with st.expander(f"{_UI_ICONS['filter']} Variant Filters", expanded=True):
             min_quality = st.slider("Min Quality (QUAL)", 0, 100, DEFAULT_MIN_QUAL,
                                     help="Minimum Phred-scaled quality score")
             min_depth   = st.slider("Min Depth (DP)", 0, 500, DEFAULT_MIN_DP,
@@ -346,7 +488,7 @@ if mode == "🔬 Single VCF":
                                              key="panel_upload")
             apply_panel   = st.checkbox("Apply panel filter", value=False)
 
-        with st.expander("🔬 Annotations", expanded=False):
+        with st.expander(f"{_UI_ICONS['annotation']} Annotations", expanded=False):
             # Auto-enable local parsers when annotated example is active
             _is_annotated = (not vcf_file) and ex_choice in (
                 "Annotated VCF (SnpEff + ClinVar)", "MAF (TCGA cancer)")
@@ -415,7 +557,13 @@ if mode == "🔬 Single VCF":
     sub_parts   = [f"📄 `{fname}`"]
     if samples:
         sub_parts.append(f"👥 Samples: **{', '.join(samples)}**")
+    if workspace_label:
+        sub_parts.append(f"🏢 Workspace: **{workspace_label}**")
     st.caption("  ·  ".join(sub_parts))
+    st.info(
+        "🧭 Navigate left-to-right through tabs: start in **Overview**, "
+        "inspect **Statistics**, then export from **Data Table** or **Report**."
+    )
 
     pass_rate = round(len(df) / len(df_raw) * 100, 1) if len(df_raw) > 0 else 0
     stats = variant_stats(df)
@@ -431,9 +579,9 @@ if mode == "🔬 Single VCF":
 
     # ── Main tabs ─────────────────────────────────────────────────────────────
     tab_names = [
-        "📊 Overview", "📈 Distributions", "🗺️ Genome Browser", "👥 Multi-Sample",
-        "🎯 Prioritize", "🧬 Gene Panel", "🔬 VEP", "🧪 SnpEff", "🏥 ClinVar",
-        "🧬 ACMG", "📉 Statistics", "📋 Predictors", "📋 Data Table", "📄 Report",
+        "📈 Overview", "📉 Distributions", "🧭 Genome Browser", "👥 Multi-Sample",
+        "🎯 Prioritize", "🧬 Gene Panel", "🔎 VEP", "🧪 SnpEff", "🩺 ClinVar",
+        "🧬 ACMG", "📊 Statistics", "🧠 Predictors", "🗂️ Data Table", "📝 Report",
     ]
     tabs = st.tabs(tab_names)
 
@@ -859,24 +1007,26 @@ if mode == "🔬 Single VCF":
     with tabs[13]:
         st.markdown('<div class="section-header">📄 Export Reports</div>', unsafe_allow_html=True)
         fname_clean = (vcf_file.name if vcf_file else "example.vcf").replace(" ","_")
+        case_id = st.session_state.get("workspace_case_id", "").strip().replace(" ", "_")
+        report_prefix = f"{case_id}_{fname_clean}" if case_id else fname_clean
         c1, c2 = st.columns(2)
         with c1:
             st.markdown("**HTML Report**\nSelf-contained, shareable with colleagues")
             if st.button("🔄 Generate HTML Report", type="primary"):
                 with st.spinner("Building HTML report…"):
-                    html_bytes = generate_report(df_raw, df, stats, filename=fname_clean)
+                    html_bytes = generate_report(df_raw, df, stats, filename=report_prefix)
                 st.download_button("⬇️ Download HTML Report", html_bytes,
-                                   fname_clean.replace(".vcf","") + "_report.html", "text/html")
+                                   report_prefix.replace(".vcf","") + "_report.html", "text/html")
         with c2:
             st.markdown("**PDF Report**\nProfessional format for clinical/lab use")
             if not pdf_available():
                 st.warning("Install `fpdf2` to enable PDF export: `pip install fpdf2`")
             elif st.button("🔄 Generate PDF Report"):
                 with st.spinner("Building PDF report…"):
-                    pdf_bytes = generate_pdf(df_raw, df, stats, filename=fname_clean)
+                    pdf_bytes = generate_pdf(df_raw, df, stats, filename=report_prefix)
                 if pdf_bytes:
                     st.download_button("⬇️ Download PDF Report", pdf_bytes,
-                                       fname_clean.replace(".vcf","") + "_report.pdf", "application/pdf")
+                                       report_prefix.replace(".vcf","") + "_report.pdf", "application/pdf")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -886,7 +1036,7 @@ if mode == "🔬 Single VCF":
 elif mode == "⚖️ Multi-VCF Compare":
 
     with st.sidebar:
-        with st.expander("📂 Upload VCF Files", expanded=True):
+        with st.expander(f"{_UI_ICONS['data']} Upload VCF Files", expanded=True):
             n_vcfs = st.slider("Number of VCFs to compare", 2, 10, 2)
             uploaded = []
             for i in range(n_vcfs):
@@ -895,6 +1045,7 @@ elif mode == "⚖️ Multi-VCF Compare":
             use_demo = st.checkbox("Use example VCF for all slots", value=True)
 
     st.title("⚖️ Multi-VCF Comparison")
+    st.info("🧭 Tip: Check the heatmap first, then open detailed pairwise tabs for variant-level review.")
 
     # Load all VCFs
     dfs = []
@@ -1018,7 +1169,7 @@ elif mode == "⚖️ Multi-VCF Compare":
 elif mode == "👨‍👩‍👧 Trio Analysis":
 
     with st.sidebar:
-        with st.expander("📂 Upload Trio VCFs", expanded=True):
+        with st.expander(f"{_UI_ICONS['data']} Upload Trio VCFs", expanded=True):
             f_proband = st.file_uploader("👶 Proband (affected)", type=_UPLOAD_TYPES, key="trio_prob")
             f_mother  = st.file_uploader("👩 Mother",              type=_UPLOAD_TYPES, key="trio_mom")
             f_father  = st.file_uploader("👨 Father",              type=_UPLOAD_TYPES, key="trio_dad")
@@ -1085,7 +1236,7 @@ elif mode == "👨‍👩‍👧 Trio Analysis":
 elif mode == "🧫 Somatic (Tumor/Normal)":
 
     with st.sidebar:
-        with st.expander("📂 Upload Paired VCFs", expanded=True):
+        with st.expander(f"{_UI_ICONS['data']} Upload Paired VCFs", expanded=True):
             f_tumor  = st.file_uploader("🔬 Tumor VCF",  type=_UPLOAD_TYPES, key="som_tumor")
             f_normal = st.file_uploader("✅ Normal VCF", type=_UPLOAD_TYPES, key="som_normal")
             use_demo = st.checkbox("Use example for both (demo)", value=True)
@@ -1162,7 +1313,187 @@ elif mode == "🧫 Somatic (Tumor/Normal)":
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# MODE 5 — BATCH PIPELINE
+# MODE 5 — ADMIN CONSOLE
+# ═══════════════════════════════════════════════════════════════════════════════
+
+elif mode == "🛠️ Admin Console":
+    st.title("🛠️ Admin Console")
+    st.caption("Platform administration for organisations, teams, and individual users.")
+
+    if auth_ctx.role != "admin":
+        st.error("Only platform admins can access this section.")
+        st.stop()
+
+    orgs = list_organizations()
+    teams = list_teams()
+    users = list_users()
+    active_users = [u for u in users if u.get("is_active")]
+
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Organisations", len(orgs))
+    c2.metric("Teams", len(teams))
+    c3.metric("Users", len(users))
+    c4.metric("Active Users", len(active_users))
+
+    st.divider()
+    tabs = st.tabs(["👥 Users & Roles", "🏢 Workspace Governance", "⚙️ Platform Settings", "📌 Admin Notes"])
+
+    with tabs[0]:
+        st.markdown("### Create User Account")
+
+        org_options = {"None": None}
+        for org in orgs:
+            org_options[f"{org['name']} (#{org['id']})"] = org["id"]
+
+        team_options = {"None": None}
+        for team in teams:
+            team_options[f"{team['organization_name']} / {team['name']} (#{team['id']})"] = team["id"]
+
+        with st.form("create_user_form"):
+            new_username = st.text_input("Username", placeholder="e.g. team.lead")
+            new_full_name = st.text_input("Full Name", placeholder="e.g. Grace Mufara")
+            new_password = st.text_input("Password", type="password", help="Minimum 8 characters")
+            new_role = st.selectbox(
+                "Role",
+                ["individual", "team_member", "org_admin", "admin"],
+                help="Role controls analysis mode access",
+            )
+            new_org_label = st.selectbox("Organisation", list(org_options.keys()))
+            new_team_label = st.selectbox("Team", list(team_options.keys()))
+            create_user_submitted = st.form_submit_button("Create User", type="primary")
+
+        if create_user_submitted:
+            try:
+                org_id = org_options.get(new_org_label)
+                team_id = team_options.get(new_team_label)
+                create_user_account(
+                    username=new_username,
+                    full_name=new_full_name,
+                    password=new_password,
+                    role=new_role,
+                    organization_id=org_id,
+                    team_id=team_id,
+                )
+                st.success(f"Created user '{new_username}'.")
+                st.rerun()
+            except Exception as exc:
+                st.error(f"Failed to create user: {exc}")
+
+        st.divider()
+        st.markdown("### Existing Users")
+        users_df = pd.DataFrame(users)
+        if users_df.empty:
+            st.info("No users found.")
+        else:
+            users_df = users_df.rename(
+                columns={
+                    "username": "Username",
+                    "full_name": "Full Name",
+                    "role": "Role",
+                    "organization_name": "Organisation",
+                    "team_name": "Team",
+                    "is_active": "Active",
+                    "created_at": "Created",
+                }
+            )
+            st.dataframe(users_df[[c for c in ["id", "Username", "Full Name", "Role", "Organisation", "Team", "Active", "Created"] if c in users_df.columns]], width="stretch")
+
+            user_labels = {
+                f"{u['username']} ({u['role']})": u["id"]
+                for u in users
+                if u["id"] != auth_ctx.user_id
+            }
+            if user_labels:
+                selected_label = st.selectbox("Select user for account status change", list(user_labels.keys()))
+                selected_user_id = user_labels[selected_label]
+                col_a, col_b = st.columns(2)
+                if col_a.button("Deactivate User", type="secondary"):
+                    set_user_active(selected_user_id, False)
+                    st.success("User deactivated.")
+                    st.rerun()
+                if col_b.button("Reactivate User", type="secondary"):
+                    set_user_active(selected_user_id, True)
+                    st.success("User reactivated.")
+                    st.rerun()
+
+    with tabs[1]:
+        st.markdown("### Create Organisation")
+        with st.form("create_org_form"):
+            org_name = st.text_input("Organisation Name", placeholder="e.g. School of Health Sciences")
+            org_submit = st.form_submit_button("Create Organisation", type="primary")
+        if org_submit:
+            try:
+                create_organization(org_name)
+                st.success(f"Organisation '{org_name}' created.")
+                st.rerun()
+            except Exception as exc:
+                st.error(f"Failed to create organisation: {exc}")
+
+        st.divider()
+        st.markdown("### Create Team")
+        org_lookup = {f"{o['name']} (#{o['id']})": o["id"] for o in orgs}
+        if org_lookup:
+            with st.form("create_team_form"):
+                selected_org_label = st.selectbox("Parent Organisation", list(org_lookup.keys()))
+                team_name = st.text_input("Team Name", placeholder="e.g. Precision Oncology Unit")
+                team_submit = st.form_submit_button("Create Team", type="primary")
+            if team_submit:
+                try:
+                    create_team(org_lookup[selected_org_label], team_name)
+                    st.success(f"Team '{team_name}' created.")
+                    st.rerun()
+                except Exception as exc:
+                    st.error(f"Failed to create team: {exc}")
+        else:
+            st.info("Create at least one organisation before adding teams.")
+
+        st.divider()
+        st.markdown("### Current Tenant Structure")
+        if orgs:
+            org_df = pd.DataFrame(orgs)
+            st.dataframe(org_df.rename(columns={"id": "Org ID", "name": "Organisation", "created_at": "Created"}), width="stretch")
+        else:
+            st.info("No organisations configured.")
+
+        if teams:
+            team_df = pd.DataFrame(teams)
+            team_df = team_df.rename(
+                columns={
+                    "id": "Team ID",
+                    "name": "Team",
+                    "organization_name": "Organisation",
+                    "created_at": "Created",
+                }
+            )
+            st.dataframe(team_df[[c for c in ["Team ID", "Team", "Organisation", "Created"] if c in team_df.columns]], width="stretch")
+        else:
+            st.info("No teams configured.")
+
+    with tabs[2]:
+        st.markdown("### Security & Session")
+        st.markdown(
+            "- Passwords are stored as PBKDF2 hashes in the app user database.\n"
+            "- Session timeout is controlled by `AUTH_SESSION_TIMEOUT_MIN`.\n"
+            "- Use different user accounts for each team member for accountability."
+        )
+
+        st.markdown("### Recommendation")
+        st.success(
+            "For production: use the Admin Console to provision per-user accounts, "
+            "set a strong session timeout, and rotate admin credentials on a schedule."
+        )
+
+    with tabs[3]:
+        st.text_area(
+            "Operational Notes",
+            key="admin_operational_notes",
+            placeholder="Track approvals, data releases, SOP updates, and onboarding notes.",
+            height=180,
+        )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# MODE 6 — BATCH PIPELINE
 # ═══════════════════════════════════════════════════════════════════════════════
 
 elif mode == "📦 Batch Pipeline":
