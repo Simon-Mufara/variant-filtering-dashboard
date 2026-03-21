@@ -79,6 +79,15 @@ st.set_page_config(
 
 # ── Auth gate (role-aware auth via Streamlit secrets) ────────────────────────
 auth_ctx = require_auth()
+if auth_ctx is None:
+    auth_ctx = types.SimpleNamespace(
+        user_id=0,
+        username="anonymous",
+        role="individual",
+        display_name="Guest",
+        organization_name="Independent",
+        team_name="N/A",
+    )
 
 if "ui_theme_choice" not in st.session_state:
     st.session_state["ui_theme_choice"] = "Light"
@@ -408,7 +417,9 @@ with st.sidebar:
 
     st.divider()
 
-    allowed_modes = available_modes(auth_ctx.role)
+    allowed_modes = available_modes(getattr(auth_ctx, "role", "individual"))
+    if not allowed_modes:
+        allowed_modes = ["🔬 Single VCF"]
     mode = st.radio(
         f"**{_UI_ICONS['mode']} Analysis Mode**",
         allowed_modes,
