@@ -182,7 +182,7 @@ def require_auth() -> AuthContext:
     st.session_state["auth_user"] = {
         "id": 0,
         "username": "guest",
-        "role": "individual",
+        "role": "team_member",
         "full_name": "Guest User",
         "organization_name": "Independent",
         "team_name": "N/A",

@@ -25,7 +25,7 @@ except ModuleNotFoundError as auth_import_exc:
             return types.SimpleNamespace(
                 user_id=0,
                 username="guest",
-                role="individual",
+                role="team_member",
                 display_name="Guest User",
                 organization_name="Independent",
                 team_name="N/A",
@@ -71,7 +71,7 @@ from utils.plots import (
     chromosome_plot, variant_type_plot, quality_distribution,
     depth_distribution, af_scatter, tstv_plot, positional_track, annotate_with_genes,
 )
-APP_BUILD = "2026.03.22-no-login-ui"
+APP_BUILD = "2026.03.22-layout-hotfix-modes"
 
 # Backward-compatible auth bindings (supports older deployed auth.py versions).
 require_auth = auth_mod.require_auth
@@ -329,6 +329,7 @@ def _inject_theme_css(theme_name: str) -> None:
             padding: .45rem .5rem;
             margin-top: .35rem;
             background: {palette["metric_bg"]};
+            align-items: flex-start;
           }}
           .workflow-item-active {{
             box-shadow: 0 0 0 1px {palette["accent_ring"]} inset;
@@ -351,12 +352,12 @@ def _inject_theme_css(theme_name: str) -> None:
             font-size: .76rem;
             font-weight: 700;
             color: {palette["sidebar_heading"]};
-            line-height: 1.25;
+            line-height: 1.2;
           }}
           .workflow-desc {{
             font-size: .69rem;
             color: {palette["sidebar_muted"]};
-            line-height: 1.3;
+            line-height: 1.22;
             margin-top: .1rem;
           }}
           .control-note {{
