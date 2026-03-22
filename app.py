@@ -770,14 +770,156 @@ def _generate_acmg_interpretation(row: pd.Series, mode: str, teaching_mode: bool
     )
 
 
+def _generate_local_ai_interpretation(row: pd.Series, mode: str, teaching_mode: bool = False) -> str:
+    """Deterministic local AI-style synthesis (no API key / no external model)."""
+    gene = _pick_first(row, ["vep_symbol", "gene_name", "gene", "Hugo_Symbol"], "Unknown")
+    chrom = _pick_first(row, ["chrom"], ".")
+    pos = _pick_first(row, ["position", "pos"], ".")
+    ref = _pick_first(row, ["ref"], ".")
+    alt = _pick_first(row, ["alt"], ".")
+    variant = f"{chrom}:{pos} {ref}>{alt}"
+    variant_type = _pick_first(row, ["variant_type"], "Unknown")
+    allele_frequency = _pick_first(row, ["gnomad_af", "af"], "Not available")
+    clinvar = _pick_first(row, ["ClinVar Significance"], "Unknown")
+    impact = _pick_first(row, ["vep_impact", "annotation"], "Not available")
+    acmg_class = _pick_first(row, ["acmg_class"], "VUS")
+    path_ev = _pick_first(row, ["acmg_path_evidence"], "—")
+    benign_ev = _pick_first(row, ["acmg_benign_evidence"], "—")
+    cosmic = _pick_first(row, ["COSMIC", "cosmic", "cosmic_id", "cosmic_ids"], "Not available")
+
+    af = _to_float(allele_frequency)
+    impact_l = str(impact).lower()
+    clin_l = str(clinvar).lower()
+    gene_key = str(gene).upper()
+
+    score = 0
+    drivers: list[str] = []
+    conflicts: list[str] = []
+
+    if af is None:
+        score += 1
+        drivers.append("Population AF unavailable; treated conservatively.")
+    elif af < 0.001:
+        score += 3
+        drivers.append(f"Very rare population frequency (AF={af:.4g}).")
+    elif af < 0.01:
+        score += 2
+        drivers.append(f"Rare population frequency (AF={af:.4g}).")
+    else:
+        score -= 2
+        conflicts.append(f"Common population frequency (AF={af:.4g}) reduces pathogenic likelihood.")
+
+    if any(k in impact_l for k in ["high", "stop_gained", "frameshift", "splice"]):
+        score += 3
+        drivers.append("High-impact functional consequence.")
+    elif any(k in impact_l for k in ["moderate", "missense"]):
+        score += 1
+        drivers.append("Moderate-impact functional consequence.")
+    else:
+        conflicts.append("Low/unclear functional impact signal.")
+
+    if "pathogenic" in clin_l:
+        score += 3
+        drivers.append("ClinVar pathogenic/likely pathogenic evidence.")
+    elif "benign" in clin_l:
+        score -= 3
+        conflicts.append("ClinVar benign/likely benign evidence.")
+    else:
+        conflicts.append("No strong ClinVar consensus.")
+
+    if str(cosmic).strip() not in ("", "Not available", "nan", "None", "."):
+        score += 1
+        drivers.append("COSMIC entry present (supports somatic relevance).")
+
+    if gene_key in {"TP53", "BRCA1", "BRCA2", "KRAS", "EGFR", "PIK3CA", "PTEN", "APC"}:
+        score += 1
+        drivers.append(f"{gene} is a high-priority disease gene.")
+
+    if "pathogenic" in clin_l and "benign" in clin_l:
+        conflicts.append("Mixed ClinVar interpretations detected.")
+
+    if score >= 6:
+        local_class = "Likely Pathogenic"
+        confidence = "Moderate-to-High"
+    elif score >= 3:
+        local_class = "VUS (leaning pathogenic)"
+        confidence = "Moderate"
+    elif score <= -2:
+        local_class = "Likely Benign"
+        confidence = "Moderate"
+    else:
+        local_class = "VUS"
+        confidence = "Low-to-Moderate"
+
+    if mode == "guided":
+        interpretation = (
+            f"This local AI assistant integrates rarity, functional effect, clinical databases, and gene relevance for **{gene} {variant}**.\n\n"
+            f"- Rarity evidence: `{allele_frequency}`\n"
+            f"- Functional evidence: `{impact}`\n"
+            f"- Clinical evidence: ClinVar=`{clinvar}`, COSMIC=`{cosmic}`\n"
+            f"- ACMG-lite context: class=`{acmg_class}`, pathogenic codes=`{path_ev}`, benign codes=`{benign_ev}`\n\n"
+            "It then applies a deterministic evidence-weighting profile to produce a consistent classification suggestion."
+        )
+        supporting = (
+            f"- **Primary drivers:** {'; '.join(drivers) if drivers else 'No strong positive drivers.'}\n"
+            f"- **Conflicts / uncertainty:** {'; '.join(conflicts) if conflicts else 'No major conflicts detected.'}\n"
+            f"- **Current ACMG-lite class in dataset:** `{acmg_class}`\n"
+            f"- **Proposed local AI class:** `{local_class}`"
+        )
+        biological = (
+            f"Variant `{variant}` in **{gene}** ({variant_type}) is interpreted by balancing population rarity against predicted biological damage "
+            "and curated clinical evidence. Conflicting evidence lowers confidence and keeps the variant in VUS-like territory."
+        )
+        recommendation = (
+            "Use this output to prioritize review. Confirm with phenotype match, segregation/orthogonal validation, and curated ACMG-grade tools."
+        )
+    else:
+        interpretation = (
+            f"Local AI synthesis for {gene} {variant}: proposed **{local_class}** (confidence: {confidence}) "
+            f"given AF={allele_frequency}, impact={impact}, ClinVar={clinvar}, COSMIC={cosmic}."
+        )
+        supporting = (
+            f"- Drivers: {'; '.join(drivers) if drivers else 'none'}\n"
+            f"- Conflicts: {'; '.join(conflicts) if conflicts else 'none'}\n"
+            f"- ACMG-lite baseline: `{acmg_class}`"
+        )
+        biological = "Prioritize context-specific mechanism and phenotype concordance; treat discordant evidence as uncertainty."
+        recommendation = "Escalate high-priority variants to curated clinical interpretation workflow."
+
+    teaching_block = ""
+    if teaching_mode and mode == "guided":
+        teaching_block = (
+            "6. **Teaching Mode — How to reason**\n\n"
+            "- **Q1:** Which evidence type is strongest here: rarity, function, or database?  \n"
+            f"  **A:** Key drivers are: {('; '.join(drivers[:2]) if drivers else 'limited strong drivers')}.\n"
+            "- **Q2:** Is there conflicting evidence that lowers certainty?  \n"
+            f"  **A:** {('; '.join(conflicts[:2]) if conflicts else 'No major conflicts detected.')}\n\n"
+            "Interpretation principle: stronger convergence across independent evidence increases confidence."
+        )
+
+    return (
+        "1. **Classification (ACMG-style)**\n\n"
+        f"Dataset ACMG-lite: **{acmg_class}**  \n"
+        f"Local AI assist: **{local_class}**\n\n"
+        f"2. **Interpretation**\n\n{interpretation}\n\n"
+        f"3. **Supporting Evidence**\n\n{supporting}\n\n"
+        f"4. **Biological Context**\n\n{biological}\n\n"
+        f"5. **Recommendation / Next Step**\n\n{recommendation}\n\n"
+        f"**Confidence level:** {confidence}\n\n"
+        f"{teaching_block}"
+    )
+
+
 def _render_ai_usage_note() -> None:
     with st.expander("🤖 How AI is used in this app", expanded=False):
         st.markdown(
             """
             **Current behavior (transparent):**
 
-            - **No external LLM is called** for ACMG text generation right now.
-            - The interpretation assistant uses **rule-based ACMG-lite outputs** from your variant fields.
+            - **No API key is required** and no external LLM calls are made.
+            - You can choose:
+              - **Classic ACMG-lite** (rule-based interpretation),
+              - **Local AI Assist** (offline deterministic evidence synthesis).
             - Priority levels are computed by a **deterministic scoring heuristic** (rarity + impact + ClinVar + gene relevance).
             - Dataset-level summaries are generated from in-app statistics (counts/distributions), not a black-box model.
 
@@ -1828,6 +1970,13 @@ if mode == "🔬 Single VCF":
                 horizontal=True,
                 key="acmg_interp_mode",
             )
+            engine_mode = st.radio(
+                "Assistant engine",
+                ["Classic ACMG-lite", "Local AI Assist (no API key)"],
+                horizontal=True,
+                key="acmg_engine_mode",
+                help="Classic uses current rule formatting. Local AI Assist uses an offline evidence synthesizer.",
+            )
             teaching_mode = st.checkbox(
                 "Enable teaching mode (guided only)",
                 value=False,
@@ -1848,11 +1997,18 @@ if mode == "🔬 Single VCF":
             sel_idx = int(str(selected).split("|", 1)[0].strip())
             df_reset = df.reset_index(drop=True)
             row = df_reset.iloc[sel_idx]
-            interpretation_text = _generate_acmg_interpretation(
-                row,
-                mode=interp_mode,
-                teaching_mode=teaching_mode,
-            )
+            if engine_mode == "Local AI Assist (no API key)":
+                interpretation_text = _generate_local_ai_interpretation(
+                    row,
+                    mode=interp_mode,
+                    teaching_mode=teaching_mode,
+                )
+            else:
+                interpretation_text = _generate_acmg_interpretation(
+                    row,
+                    mode=interp_mode,
+                    teaching_mode=teaching_mode,
+                )
             st.markdown(interpretation_text)
 
             priority_level, priority_reason = _priority_assessment(row, mode=interp_mode)
@@ -1890,11 +2046,18 @@ if mode == "🔬 Single VCF":
                         f"{_pick_first(r, ['chrom'], '.')}:{_pick_first(r, ['position', 'pos'], '.')} "
                         f"{_pick_first(r, ['ref'], '.')}>{_pick_first(r, ['alt'], '.')}"
                     )
-                    body = _generate_acmg_interpretation(
-                        r,
-                        mode=interp_mode,
-                        teaching_mode=teaching_mode,
-                    )
+                    if engine_mode == "Local AI Assist (no API key)":
+                        body = _generate_local_ai_interpretation(
+                            r,
+                            mode=interp_mode,
+                            teaching_mode=teaching_mode,
+                        )
+                    else:
+                        body = _generate_acmg_interpretation(
+                            r,
+                            mode=interp_mode,
+                            teaching_mode=teaching_mode,
+                        )
                     plevel, preason = _priority_assessment(r, mode=interp_mode)
                     outputs.append(
                         f"{hdr}\n\n{body}\n\n### Priority\n\n- Level: {plevel}\n- Justification: {preason}\n"
