@@ -71,7 +71,7 @@ from utils.plots import (
     chromosome_plot, variant_type_plot, quality_distribution,
     depth_distribution, af_scatter, tstv_plot, positional_track, annotate_with_genes,
 )
-APP_BUILD = "2026.03.22-ai-clarity-layout"
+APP_BUILD = "2026.03.22-layout-guide-v2"
 
 # Backward-compatible auth bindings (supports older deployed auth.py versions).
 require_auth = auth_mod.require_auth
@@ -135,6 +135,8 @@ if "ui_theme_choice" not in st.session_state:
     st.session_state["ui_theme_choice"] = "Light"
 if "ui_density" not in st.session_state:
     st.session_state["ui_density"] = "Compact"
+if "show_quick_guide" not in st.session_state:
+    st.session_state["show_quick_guide"] = True
 
 _UI_ICONS = {
     "app": "🧬",
@@ -210,6 +212,45 @@ def _render_workflow_navigator(mode_name: str, active_step: int = 1) -> None:
             """,
             unsafe_allow_html=True,
         )
+
+
+def _render_user_guide(mode_name: str) -> None:
+    st.markdown(
+        """
+        <div class="quick-guide">
+          <div class="quick-guide-title">📘 User Guideline — How to Analyze Data</div>
+          <div class="quick-guide-step"><b>1) Load data:</b> upload VCF/MAF/TSV/CSV (or use built-in example).</div>
+          <div class="quick-guide-step"><b>2) Apply quality filters:</b> set QUAL, DP, chromosome, AF, and PASS-only as needed.</div>
+          <div class="quick-guide-step"><b>3) Add annotations:</b> enable VEP/gnomAD/predictor/ACMG options for richer interpretation.</div>
+          <div class="quick-guide-step"><b>4) Interpret safely:</b> review Overview → Statistics → ACMG/ClinVar, then export report.</div>
+          <div class="quick-guide-step"><b>5) Clinical caution:</b> use as triage support, then validate with clinical-grade workflows.</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    if mode_name == "🔬 Single VCF":
+        st.caption("Best for deep variant interpretation of one case/sample.")
+    elif mode_name == "⚖️ Multi-VCF Compare":
+        st.caption("Best for overlap/concordance analysis across multiple files.")
+    elif mode_name == "👨‍👩‍👧 Trio Analysis":
+        st.caption("Best for inherited/de novo variant reasoning in family studies.")
+    elif mode_name == "🧫 Somatic (Tumor/Normal)":
+        st.caption("Best for tumor-only candidate discovery via matched normal subtraction.")
+    elif mode_name == "📦 Batch Pipeline":
+        st.caption("Best for standardized processing across many files/projects.")
+
+    st.markdown("**Workflow modes at a glance**")
+    st.markdown(
+        """
+        <span class="mode-chip">🔬 Single VCF</span>
+        <span class="mode-chip">⚖️ Multi-VCF Compare</span>
+        <span class="mode-chip">👨‍👩‍👧 Trio</span>
+        <span class="mode-chip">🧫 Somatic</span>
+        <span class="mode-chip">📦 Batch</span>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 def _resolve_theme_name(choice: str) -> str:
@@ -409,6 +450,35 @@ def _inject_theme_css(theme_name: str) -> None:
             font-size: 1.1rem; font-weight: 700; color: {palette["section_text"]};
             border-left: 4px solid {palette["accent"]}; padding-left: .6rem; border-radius: 2px;
             margin: 1rem 0 .5rem;
+          }}
+          .quick-guide {{
+            border: 1px solid {palette["metric_border"]};
+            border-radius: 12px;
+            padding: .65rem .8rem;
+            background: {palette["metric_bg"]};
+            box-shadow: {palette["card_shadow"]};
+            margin: .45rem 0 .8rem 0;
+          }}
+          .quick-guide-title {{
+            font-weight: 700;
+            color: {palette["section_text"]};
+            margin-bottom: .35rem;
+          }}
+          .quick-guide-step {{
+            font-size: .84rem;
+            color: {palette["sidebar_text"]};
+            line-height: 1.35;
+            margin: .18rem 0;
+          }}
+          .mode-chip {{
+            display: inline-block;
+            border: 1px solid {palette["metric_border"]};
+            border-radius: 999px;
+            padding: .18rem .55rem;
+            font-size: .72rem;
+            margin: .12rem .25rem .12rem 0;
+            background: {palette["accent_soft"]};
+            color: {palette["section_text"]};
           }}
         </style>
         """,
@@ -1433,6 +1503,11 @@ with st.sidebar:
         key="ui_density",
         help="Compact hides non-essential guidance; Comfortable shows full helper panels.",
     )
+    st.toggle(
+        "📘 Show quick user guide",
+        key="show_quick_guide",
+        help="Show/hide in-app usage guidance and workflow tips.",
+    )
     render_user_status(auth_ctx)
     if st.session_state.get("ui_density") == "Comfortable":
         st.divider()
@@ -1475,8 +1550,7 @@ with st.sidebar:
         st.divider()
 
     # ── Credits ───────────────────────────────────────────────────────────────
-    st.markdown(
-        """
+    credits_html = """
         <div class="sidebar-note">
           <div style="font-weight:600; margin-bottom:.2rem;">👤 Developed by Simon Mufara</div>
           Bioinformatics · Machine Learning · Cancer Genomics<br>
@@ -1486,9 +1560,12 @@ with st.sidebar:
           Built with Streamlit · Plotly · Ensembl VEP · gnomAD · SnpEff · ACMG<br>
           ⚕️ Research use only — not for clinical diagnosis
         </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    """
+    if st.session_state.get("ui_density") == "Compact":
+        with st.expander("ℹ️ About this project", expanded=False):
+            st.markdown(credits_html, unsafe_allow_html=True)
+    else:
+        st.markdown(credits_html, unsafe_allow_html=True)
 
 workspace_bits = [
     st.session_state.get("workspace_org", "").strip(),
@@ -1552,7 +1629,10 @@ if mode == "🔬 Single VCF":
             st.info("Upload a variant file (VCF, MAF, TSV/CSV) or choose a built-in example to begin.")
             st.stop()
 
-        with st.expander(f"{_UI_ICONS['filter']} Variant Filters", expanded=True):
+        with st.expander(
+            f"{_UI_ICONS['filter']} Variant Filters",
+            expanded=st.session_state.get("ui_density") == "Comfortable",
+        ):
             min_quality = st.slider("Min Quality (QUAL)", 0, 100, DEFAULT_MIN_QUAL,
                                     help="Minimum Phred-scaled quality score")
             min_depth   = st.slider("Min Depth (DP)", 0, 500, DEFAULT_MIN_DP,
@@ -1646,6 +1726,8 @@ if mode == "🔬 Single VCF":
 
     # ── Header ────────────────────────────────────────────────────────────────
     st.title("🧬 Variant Analysis Suite")
+    if st.session_state.get("show_quick_guide"):
+        _render_user_guide(mode)
     _render_ai_usage_note()
     sample_cols = [c for c in df_raw.columns if c.startswith("sample_")]
     samples     = [c.replace("sample_", "").replace("_GT", "") for c in sample_cols]
@@ -1675,6 +1757,15 @@ if mode == "🔬 Single VCF":
     st.divider()
 
     # ── Main tabs ─────────────────────────────────────────────────────────────
+    st.markdown(
+        """
+        <span class="mode-chip">Start: 📈 Overview</span>
+        <span class="mode-chip">Deep dive: 🎯 Prioritize / 🧬 ACMG / 🩺 ClinVar</span>
+        <span class="mode-chip">Quality: 📉 Distributions / 📊 Statistics</span>
+        <span class="mode-chip">Export: 🗂️ Data Table / 📝 Report</span>
+        """,
+        unsafe_allow_html=True,
+    )
     tab_names = [
         "📈 Overview", "📉 Distributions", "🧭 Genome Browser", "👥 Multi-Sample",
         "🎯 Prioritize", "🧬 Gene Panel", "🔎 VEP", "🧪 SnpEff", "🩺 ClinVar",

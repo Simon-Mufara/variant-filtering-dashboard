@@ -73,6 +73,36 @@ The platform delivers a complete 10-stage analysis experience:
 | Somatic (Tumor/Normal) | Paired tumor-normal comparison |
 | Batch Pipeline | Process multiple files in sequence |
 
+## User Guideline (Quick Start)
+
+Use this workflow to keep analysis consistent and clinically sensible:
+
+1. **Load data**
+   - Upload `VCF/VCF.GZ/MAF/TSV/CSV`, or start with a built-in example.
+
+2. **Apply baseline quality filters**
+   - Set `QUAL`, `DP`, chromosome selection, AF range, and PASS-only if needed.
+
+3. **Add annotation layers**
+   - Enable VEP, gnomAD, predictor parsing, and ACMG-lite for richer interpretation.
+
+4. **Interpret in sequence**
+   - Start with `Overview` → move to `Prioritize` / `ClinVar` / `ACMG` → validate with `Statistics`.
+
+5. **Export and communicate**
+   - Download filtered tables and generate HTML/PDF reports for review meetings.
+
+## Visual Analysis Flow
+
+`Upload` → `Filter` → `Annotate` → `Interpret` → `QC Check` → `Export Report`
+
+Recommended tab journey in **Single VCF** mode:
+
+- `📈 Overview` (initial signal)
+- `🎯 Prioritize` + `🩺 ClinVar` + `🧬 ACMG` (biological/clinical triage)
+- `📊 Statistics` (quality confidence)
+- `🗂️ Data Table` + `📝 Report` (final outputs)
+
 ## Partnership Value
 
 - Standardized and reproducible variant analysis practice across projects.
