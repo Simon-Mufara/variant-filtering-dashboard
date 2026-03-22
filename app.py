@@ -1648,30 +1648,133 @@ elif mode == "📦 Batch Pipeline":
         ref_fa = st.text_input("Reference FASTA path", value="genome.fa", key="fastq_ref_fa")
         fastq_r1 = st.text_input("FASTQ R1 path", value="sample_R1.fastq.gz", key="fastq_r1")
         fastq_r2 = st.text_input("FASTQ R2 path", value="sample_R2.fastq.gz", key="fastq_r2")
+        qc_tool = st.selectbox(
+            "QC tool",
+            ["FastQC + MultiQC", "FastQC only", "fastp QC report", "Skip QC"],
+            key="fastq_qc_tool",
+        )
+        trimming_tool = st.selectbox(
+            "Read trimming tool",
+            ["Trim Galore", "fastp", "Trimmomatic", "Skip trimming"],
+            key="fastq_trim_tool",
+        )
+        caller_tool = st.selectbox(
+            "Variant caller",
+            ["DeepVariant (recommended)", "bcftools mpileup/call", "GATK HaplotypeCaller", "FreeBayes"],
+            key="fastq_caller_tool",
+        )
+        do_annotation = st.checkbox("Include predictor + VEP annotation steps", value=True, key="fastq_with_annotation")
+        threads = st.slider("Threads", 2, 32, 8, key="fastq_threads")
+
+        qc_block = ""
+        if qc_tool == "FastQC + MultiQC":
+            qc_block = (
+                f"# 0) Raw read QC\n"
+                f"fastqc -t {threads} {fastq_r1} {fastq_r2} -o qc_raw/\n"
+                "multiqc qc_raw -o qc_raw/\n\n"
+            )
+        elif qc_tool == "FastQC only":
+            qc_block = (
+                f"# 0) Raw read QC\n"
+                f"fastqc -t {threads} {fastq_r1} {fastq_r2} -o qc_raw/\n\n"
+            )
+        elif qc_tool == "fastp QC report":
+            qc_block = (
+                f"# 0) Raw read QC (fastp)\n"
+                f"fastp -i {fastq_r1} -I {fastq_r2} -h {sample_id}.fastp.html -j {sample_id}.fastp.json "
+                f"-w {threads} -o {sample_id}.qc_R1.fastq.gz -O {sample_id}.qc_R2.fastq.gz\n\n"
+            )
+
+        if trimming_tool == "Trim Galore":
+            trim_block = (
+                "# 1) Adapter/quality trimming (Trim Galore)\n"
+                f"trim_galore --paired --cores {max(1, threads // 2)} {fastq_r1} {fastq_r2} -o trimmed/\n"
+                f"R1=trimmed/{os.path.basename(fastq_r1).replace('.fastq.gz', '_val_1.fq.gz')}\n"
+                f"R2=trimmed/{os.path.basename(fastq_r2).replace('.fastq.gz', '_val_2.fq.gz')}\n\n"
+            )
+        elif trimming_tool == "fastp":
+            trim_block = (
+                "# 1) Adapter/quality trimming (fastp)\n"
+                f"fastp -i {fastq_r1} -I {fastq_r2} -w {threads} "
+                f"-o {sample_id}.trim_R1.fastq.gz -O {sample_id}.trim_R2.fastq.gz "
+                f"-h {sample_id}.trim.fastp.html -j {sample_id}.trim.fastp.json\n"
+                f"R1={sample_id}.trim_R1.fastq.gz\n"
+                f"R2={sample_id}.trim_R2.fastq.gz\n\n"
+            )
+        elif trimming_tool == "Trimmomatic":
+            trim_block = (
+                "# 1) Adapter/quality trimming (Trimmomatic)\n"
+                f"trimmomatic PE -threads {threads} {fastq_r1} {fastq_r2} "
+                f"{sample_id}.trim_R1.fastq.gz {sample_id}.trim_R1.unpaired.fastq.gz "
+                f"{sample_id}.trim_R2.fastq.gz {sample_id}.trim_R2.unpaired.fastq.gz "
+                "ILLUMINACLIP:adapters.fa:2:30:10 LEADING:3 TRAILING:3 SLIDINGWINDOW:4:20 MINLEN:36\n"
+                f"R1={sample_id}.trim_R1.fastq.gz\n"
+                f"R2={sample_id}.trim_R2.fastq.gz\n\n"
+            )
+        else:
+            trim_block = (
+                "# 1) No trimming selected\n"
+                f"R1={fastq_r1}\n"
+                f"R2={fastq_r2}\n\n"
+            )
+
+        align_block = (
+            "# 2) Align reads and sort BAM\n"
+            f"bwa mem -t {threads} {ref_fa} $R1 $R2 | samtools sort -@ {threads} -o {sample_id}.sorted.bam\n"
+            f"samtools index {sample_id}.sorted.bam\n\n"
+            "# 3) Mark duplicates\n"
+            f"gatk MarkDuplicates -I {sample_id}.sorted.bam -O {sample_id}.dedup.bam -M {sample_id}.dup_metrics.txt\n"
+            f"samtools index {sample_id}.dedup.bam\n\n"
+        )
+
+        if caller_tool == "DeepVariant (recommended)":
+            call_block = (
+                "# 4) Variant calling (DeepVariant)\n"
+                "docker run --rm -v \"$PWD\":/input -v \"$PWD\":/output google/deepvariant:latest "
+                f"/opt/deepvariant/bin/run_deepvariant --model_type=WGS --ref=/input/{ref_fa} "
+                f"--reads=/input/{sample_id}.dedup.bam --output_vcf=/output/{sample_id}.raw.vcf.gz "
+                f"--num_shards={threads}\n"
+                f"bcftools index {sample_id}.raw.vcf.gz\n\n"
+            )
+        elif caller_tool == "GATK HaplotypeCaller":
+            call_block = (
+                "# 4) Variant calling (GATK HaplotypeCaller)\n"
+                f"gatk HaplotypeCaller -R {ref_fa} -I {sample_id}.dedup.bam -O {sample_id}.raw.vcf.gz\n"
+                f"bcftools index {sample_id}.raw.vcf.gz\n\n"
+            )
+        elif caller_tool == "FreeBayes":
+            call_block = (
+                "# 4) Variant calling (FreeBayes)\n"
+                f"freebayes -f {ref_fa} {sample_id}.dedup.bam | bgzip > {sample_id}.raw.vcf.gz\n"
+                f"bcftools index {sample_id}.raw.vcf.gz\n\n"
+            )
+        else:
+            call_block = (
+                "# 4) Variant calling (bcftools)\n"
+                f"bcftools mpileup -f {ref_fa} {sample_id}.dedup.bam | bcftools call -mv -Oz -o {sample_id}.raw.vcf.gz\n"
+                f"bcftools index {sample_id}.raw.vcf.gz\n\n"
+            )
+
+        filter_block = (
+            "# 5) Basic filtering\n"
+            f"bcftools filter -e 'QUAL<30 || DP<10' {sample_id}.raw.vcf.gz -Oz -o {sample_id}.filtered.vcf.gz\n"
+            f"bcftools index {sample_id}.filtered.vcf.gz\n\n"
+        )
+
+        annotation_block = ""
+        if do_annotation:
+            annotation_block = (
+                "# 6) Optional annotation (predictors + VEP)\n"
+                f"bcftools annotate -a dbNSFP4.4a_grch38.gz -c CHROM,POS,REF,ALT,CADD_PHRED,REVEL,AM_PATHOGENICITY "
+                f"{sample_id}.filtered.vcf.gz -Oz -o {sample_id}.dbnsfp.vcf.gz\n"
+                f"spliceai -I {sample_id}.dbnsfp.vcf.gz -O {sample_id}.predictors.vcf.gz -R {ref_fa} -A grch38\n"
+                f"vep -i {sample_id}.predictors.vcf.gz -o {sample_id}.vep.vcf --vcf --everything --offline --cache --assembly GRCh38\n"
+            )
 
         fastq_pipeline = f"""#!/usr/bin/env bash
 set -euo pipefail
 
-# 1) Align reads
-bwa mem -t 8 {ref_fa} {fastq_r1} {fastq_r2} | samtools sort -@ 8 -o {sample_id}.sorted.bam
-samtools index {sample_id}.sorted.bam
-
-# 2) Mark duplicates
-gatk MarkDuplicates -I {sample_id}.sorted.bam -O {sample_id}.dedup.bam -M {sample_id}.dup_metrics.txt
-samtools index {sample_id}.dedup.bam
-
-# 3) Variant calling
-bcftools mpileup -f {ref_fa} {sample_id}.dedup.bam | bcftools call -mv -Oz -o {sample_id}.raw.vcf.gz
-bcftools index {sample_id}.raw.vcf.gz
-
-# 4) Basic filtering
-bcftools filter -e 'QUAL<30 || DP<10' {sample_id}.raw.vcf.gz -Oz -o {sample_id}.filtered.vcf.gz
-bcftools index {sample_id}.filtered.vcf.gz
-
-# 5) Optional annotation (predictors + VEP)
-bcftools annotate -a dbNSFP4.4a_grch38.gz -c CHROM,POS,REF,ALT,CADD_PHRED,REVEL,AM_PATHOGENICITY {sample_id}.filtered.vcf.gz -Oz -o {sample_id}.dbnsfp.vcf.gz
-spliceai -I {sample_id}.dbnsfp.vcf.gz -O {sample_id}.predictors.vcf.gz -R {ref_fa} -A grch38
-vep -i {sample_id}.predictors.vcf.gz -o {sample_id}.vep.vcf --vcf --everything --offline --cache --assembly GRCh38
+{qc_block}{trim_block}{align_block}{call_block}{filter_block}{annotation_block}
 """
         st.code(fastq_pipeline, language="bash")
         st.download_button(
@@ -1681,7 +1784,23 @@ vep -i {sample_id}.predictors.vcf.gz -o {sample_id}.vep.vcf --vcf --everything -
             "text/x-shellscript",
         )
         st.markdown("**Tool availability check on this host**")
-        _render_tool_status(["bwa", "samtools", "gatk", "bcftools", "spliceai", "vep"])
+        _render_tool_status(
+            [
+                "fastqc",
+                "multiqc",
+                "trim_galore",
+                "fastp",
+                "trimmomatic",
+                "bwa",
+                "samtools",
+                "gatk",
+                "bcftools",
+                "freebayes",
+                "docker",
+                "spliceai",
+                "vep",
+            ]
+        )
         st.caption(
             "Tip: run these commands on a compute server/HPC. Then upload the final VCF here."
         )
