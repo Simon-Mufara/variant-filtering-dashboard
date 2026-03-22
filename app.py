@@ -71,7 +71,7 @@ from utils.plots import (
     chromosome_plot, variant_type_plot, quality_distribution,
     depth_distribution, af_scatter, tstv_plot, positional_track, annotate_with_genes,
 )
-APP_BUILD = "2026.03.22-layout-guide-v2"
+APP_BUILD = "2026.03.22-layout-polish-v3"
 
 # Backward-compatible auth bindings (supports older deployed auth.py versions).
 require_auth = auth_mod.require_auth
@@ -136,7 +136,9 @@ if "ui_theme_choice" not in st.session_state:
 if "ui_density" not in st.session_state:
     st.session_state["ui_density"] = "Compact"
 if "show_quick_guide" not in st.session_state:
-    st.session_state["show_quick_guide"] = True
+    st.session_state["show_quick_guide"] = False
+if "show_visual_flow" not in st.session_state:
+    st.session_state["show_visual_flow"] = True
 
 _UI_ICONS = {
     "app": "🧬",
@@ -1508,6 +1510,11 @@ with st.sidebar:
         key="show_quick_guide",
         help="Show/hide in-app usage guidance and workflow tips.",
     )
+    st.toggle(
+        "🧭 Show visual flow chips",
+        key="show_visual_flow",
+        help="Show/hide compact visual navigation chips above tabs.",
+    )
     render_user_status(auth_ctx)
     if st.session_state.get("ui_density") == "Comfortable":
         st.divider()
@@ -1757,15 +1764,16 @@ if mode == "🔬 Single VCF":
     st.divider()
 
     # ── Main tabs ─────────────────────────────────────────────────────────────
-    st.markdown(
-        """
-        <span class="mode-chip">Start: 📈 Overview</span>
-        <span class="mode-chip">Deep dive: 🎯 Prioritize / 🧬 ACMG / 🩺 ClinVar</span>
-        <span class="mode-chip">Quality: 📉 Distributions / 📊 Statistics</span>
-        <span class="mode-chip">Export: 🗂️ Data Table / 📝 Report</span>
-        """,
-        unsafe_allow_html=True,
-    )
+    if st.session_state.get("show_visual_flow"):
+        st.markdown(
+            """
+            <span class="mode-chip">Start: 📈 Overview</span>
+            <span class="mode-chip">Deep dive: 🎯 Prioritize / 🧬 ACMG / 🩺 ClinVar</span>
+            <span class="mode-chip">Quality: 📉 Distributions / 📊 Statistics</span>
+            <span class="mode-chip">Export: 🗂️ Data Table / 📝 Report</span>
+            """,
+            unsafe_allow_html=True,
+        )
     tab_names = [
         "📈 Overview", "📉 Distributions", "🧭 Genome Browser", "👥 Multi-Sample",
         "🎯 Prioritize", "🧬 Gene Panel", "🔎 VEP", "🧪 SnpEff", "🩺 ClinVar",
