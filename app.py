@@ -28,9 +28,16 @@ except ModuleNotFoundError as auth_import_exc:
             if not app_password:
                 st.warning(
                     "Auth backend module is unavailable and no APP_PASSWORD/APP_ADMIN_PASSWORD "
-                    "was found in Streamlit secrets."
+                    "was found in Streamlit secrets. Continuing in guest mode."
                 )
-                st.stop()
+                return types.SimpleNamespace(
+                    user_id=0,
+                    username="guest",
+                    role="admin",
+                    display_name="Guest",
+                    organization_name="Independent",
+                    team_name="N/A",
+                )
 
             if not st.session_state.get("legacy_authenticated"):
                 with st.form("legacy_login_form"):
