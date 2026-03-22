@@ -21,40 +21,12 @@ except ModuleNotFoundError as auth_import_exc:
 
         @staticmethod
         def require_auth():
-            app_password = ""
-            if hasattr(st, "secrets"):
-                app_password = str(
-                    st.secrets.get("APP_PASSWORD", st.secrets.get("APP_ADMIN_PASSWORD", ""))
-                ).strip()
-
-            if not app_password:
-                st.session_state["legacy_guest_mode"] = True
-                return types.SimpleNamespace(
-                    user_id=0,
-                    username="guest",
-                    role="admin",
-                    display_name="Guest",
-                    organization_name="Independent",
-                    team_name="N/A",
-                )
-
-            if not st.session_state.get("legacy_authenticated"):
-                with st.form("legacy_login_form"):
-                    st.subheader("Access Required")
-                    entered = st.text_input("Password", type="password")
-                    submit = st.form_submit_button("Sign In", type="primary")
-                if submit and entered == app_password:
-                    st.session_state["legacy_authenticated"] = True
-                    st.rerun()
-                if submit:
-                    st.error("Invalid password.")
-                st.stop()
-
+            st.session_state["legacy_guest_mode"] = True
             return types.SimpleNamespace(
                 user_id=0,
-                username="legacy-user",
-                role="admin",
-                display_name="Legacy User",
+                username="guest",
+                role="individual",
+                display_name="Guest User",
                 organization_name="Independent",
                 team_name="N/A",
             )
@@ -99,7 +71,7 @@ from utils.plots import (
     chromosome_plot, variant_type_plot, quality_distribution,
     depth_distribution, af_scatter, tstv_plot, positional_track, annotate_with_genes,
 )
-APP_BUILD = "2026.03.22-layout-controlcenter"
+APP_BUILD = "2026.03.22-no-login-ui"
 
 # Backward-compatible auth bindings (supports older deployed auth.py versions).
 require_auth = auth_mod.require_auth

@@ -177,70 +177,18 @@ def available_modes(role: str) -> list[str]:
 
 
 def require_auth() -> AuthContext:
-    """Block the app until a valid user session exists."""
-    store = get_user_store()
-    bootstrap_password = _secret("APP_ADMIN_PASSWORD") or _secret("APP_PASSWORD")
-
-    if st.session_state.get("authenticated") and not _is_session_expired():
-        return get_auth_context()
-
-    if _is_session_expired():
-        sign_out()
-        st.warning("Your session expired. Please sign in again.")
-
-    # If no bootstrap password is configured, don't hard-block users at login.
-    # This keeps the app accessible for clinician workflows on fresh deployments.
-    if not bootstrap_password:
-        st.session_state["authenticated"] = True
-        st.session_state["auth_user"] = {
-            "id": 0,
-            "username": "guest",
-            "role": "individual",
-            "full_name": "Guest User",
-            "organization_name": "Independent",
-            "team_name": "N/A",
-        }
-        st.session_state["auth_logged_at"] = datetime.now(timezone.utc)
-        return get_auth_context()
-
-    st.markdown(
-        """
-        <style>
-            .login-box {
-                max-width: 460px; margin: 5rem auto 1rem; padding: 2rem;
-                background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
-                border: 1px solid #e2e8f0; border-radius: 12px;
-                box-shadow: 0 4px 24px rgba(0,0,0,.12);
-            }
-            .login-box h2 { color: #0f172a; margin-bottom: .4rem; text-align: center; }
-            .login-box p { color: #475569; text-align: center; margin: 0; }
-        </style>
-        <div class="login-box">
-          <h2>Variant Analysis Suite</h2>
-          <p>Secure access for organisations, teams, and individual researchers.</p>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    with st.form("login_form"):
-        st.subheader("Access Required")
-        username = st.text_input("Username", autocomplete="username")
-        pwd = st.text_input("Password", type="password", autocomplete="current-password")
-        submitted = st.form_submit_button("Sign In", type="primary")
-
-    if submitted:
-        user = store.authenticate(username=username, password=pwd)
-        if user:
-            st.session_state["authenticated"] = True
-            st.session_state["auth_user"] = user
-            st.session_state["auth_logged_at"] = datetime.now(timezone.utc)
-            st.rerun()
-
-        st.error("Invalid username or password.")
-
-    st.caption("Tip: set APP_ADMIN_PASSWORD in Streamlit secrets to enable managed sign-in.")
-    st.stop()
+    """Return guest auth context (no login UI)."""
+    st.session_state["authenticated"] = True
+    st.session_state["auth_user"] = {
+        "id": 0,
+        "username": "guest",
+        "role": "individual",
+        "full_name": "Guest User",
+        "organization_name": "Independent",
+        "team_name": "N/A",
+    }
+    st.session_state["auth_logged_at"] = datetime.now(timezone.utc)
+    return get_auth_context()
 
 
 def create_user_account(
@@ -287,7 +235,7 @@ def set_user_active(user_id: int, active: bool) -> None:
 
 
 def render_user_status(auth_ctx: AuthContext) -> None:
-    """Render current signed-in user status in the sidebar."""
+    """Render current access status in the sidebar."""
     role_label = {
         "admin": "Platform Admin",
         "org_admin": "Organisation Admin",
@@ -299,7 +247,7 @@ def render_user_status(auth_ctx: AuthContext) -> None:
         f"""
         <div style="padding:.55rem .7rem; border:1px solid #1e293b; border-radius:10px;
                     background:rgba(15,23,42,.45); margin-bottom:.45rem;">
-          <div style="font-size:.72rem; color:#94a3b8;">Signed in</div>
+          <div style="font-size:.72rem; color:#94a3b8;">Access mode</div>
           <div style="color:#e2e8f0; font-weight:700;">{auth_ctx.display_name}</div>
           <div style="color:#93c5fd; font-size:.75rem; margin-top:.2rem;">{role_label}</div>
           <div style="color:#64748b; font-size:.67rem; margin-top:.25rem;">
@@ -309,5 +257,3 @@ def render_user_status(auth_ctx: AuthContext) -> None:
         """,
         unsafe_allow_html=True,
     )
-    if st.button("Sign Out", use_container_width=True):
-        sign_out()
