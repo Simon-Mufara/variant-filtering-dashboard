@@ -2,6 +2,7 @@
 import os
 import io
 import types
+import shutil
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -383,6 +384,22 @@ def _omim_link(gene: str) -> str:
     if gene and gene not in ("", ".", "—"):
         return f"https://omim.org/search?search={gene}"
     return ""
+
+
+def _tool_available(tool_name: str) -> bool:
+    return shutil.which(tool_name) is not None
+
+
+def _render_tool_status(tool_names: list[str]) -> None:
+    rows = []
+    for name in tool_names:
+        rows.append(
+            {
+                "Tool": name,
+                "Status": "✅ Available" if _tool_available(name) else "❌ Not found",
+            }
+        )
+    st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1554,10 +1571,120 @@ elif mode == "📦 Batch Pipeline":
             min_dp_batch   = st.slider("Min Depth", 0, 500, DEFAULT_MIN_DP,    key="batch_dp")
             do_acmg_batch  = st.checkbox("ACMG-lite classification", key="batch_acmg")
             do_scores_batch = st.checkbox("Parse predictor scores", key="batch_scores")
+            do_vep_batch = st.checkbox("Generate VEP command plan", key="batch_vep_plan")
+            include_fastq_pipeline = st.checkbox("Show FASTQ variant-calling workflow", key="batch_fastq_plan")
 
     st.title("📦 Batch Pipeline")
     st.info("Upload multiple VCF files. All will be filtered with the same settings "
             "and merged into a single annotated CSV download.")
+
+    st.markdown('<div class="section-header">🧰 Automation Assistant</div>', unsafe_allow_html=True)
+    automation_tabs = st.tabs(["🧪 Predictor/VEP Automation", "🧬 FASTQ → VCF Workflow"])
+
+    with automation_tabs[0]:
+        st.markdown(
+            "Generate ready-to-run command templates for annotation. "
+            "These commands can be copied to your Linux terminal."
+        )
+        genome_build_cmd = st.selectbox(
+            "Reference build for command templates",
+            ["grch38", "grch37"],
+            key="automation_genome_build",
+        )
+        input_vcf_name = st.text_input(
+            "Input VCF filename",
+            value="input.vcf.gz",
+            key="automation_input_vcf",
+        )
+        output_prefix = st.text_input(
+            "Output prefix",
+            value="annotated_output",
+            key="automation_output_prefix",
+        )
+
+        predictor_cmd = (
+            "bcftools annotate "
+            f"-a dbNSFP4.4a_{genome_build_cmd}.gz "
+            "-c CHROM,POS,REF,ALT,CADD_PHRED,REVEL,AM_PATHOGENICITY "
+            f"{input_vcf_name} -Oz -o {output_prefix}.dbnsfp.vcf.gz"
+        )
+        spliceai_cmd = (
+            "spliceai "
+            f"-I {output_prefix}.dbnsfp.vcf.gz "
+            f"-O {output_prefix}.predictors.vcf.gz "
+            f"-R genome_{genome_build_cmd}.fa -A {genome_build_cmd}"
+        )
+        vep_cmd = (
+            "vep "
+            f"-i {output_prefix}.predictors.vcf.gz "
+            f"-o {output_prefix}.vep.vcf "
+            "--vcf --everything --offline --cache "
+            f"--assembly {'GRCh38' if genome_build_cmd == 'grch38' else 'GRCh37'}"
+        )
+
+        st.code(predictor_cmd, language="bash")
+        st.code(spliceai_cmd, language="bash")
+        st.code(vep_cmd, language="bash")
+
+        st.download_button(
+            "⬇️ Download annotation command script",
+            (
+                "#!/usr/bin/env bash\nset -euo pipefail\n\n"
+                f"{predictor_cmd}\n{spliceai_cmd}\n{vep_cmd}\n"
+            ).encode(),
+            "run_annotation_pipeline.sh",
+            "text/x-shellscript",
+        )
+
+        st.markdown("**Tool availability check on this host**")
+        _render_tool_status(["bcftools", "spliceai", "vep"])
+
+    with automation_tabs[1]:
+        st.markdown(
+            "If users only have FASTQ files, this workflow generates a best-practice command plan "
+            "from raw reads to a VCF suitable for this app."
+        )
+        sample_id = st.text_input("Sample ID", value="SAMPLE001", key="fastq_sample_id")
+        ref_fa = st.text_input("Reference FASTA path", value="genome.fa", key="fastq_ref_fa")
+        fastq_r1 = st.text_input("FASTQ R1 path", value="sample_R1.fastq.gz", key="fastq_r1")
+        fastq_r2 = st.text_input("FASTQ R2 path", value="sample_R2.fastq.gz", key="fastq_r2")
+
+        fastq_pipeline = f"""#!/usr/bin/env bash
+set -euo pipefail
+
+# 1) Align reads
+bwa mem -t 8 {ref_fa} {fastq_r1} {fastq_r2} | samtools sort -@ 8 -o {sample_id}.sorted.bam
+samtools index {sample_id}.sorted.bam
+
+# 2) Mark duplicates
+gatk MarkDuplicates -I {sample_id}.sorted.bam -O {sample_id}.dedup.bam -M {sample_id}.dup_metrics.txt
+samtools index {sample_id}.dedup.bam
+
+# 3) Variant calling
+bcftools mpileup -f {ref_fa} {sample_id}.dedup.bam | bcftools call -mv -Oz -o {sample_id}.raw.vcf.gz
+bcftools index {sample_id}.raw.vcf.gz
+
+# 4) Basic filtering
+bcftools filter -e 'QUAL<30 || DP<10' {sample_id}.raw.vcf.gz -Oz -o {sample_id}.filtered.vcf.gz
+bcftools index {sample_id}.filtered.vcf.gz
+
+# 5) Optional annotation (predictors + VEP)
+bcftools annotate -a dbNSFP4.4a_grch38.gz -c CHROM,POS,REF,ALT,CADD_PHRED,REVEL,AM_PATHOGENICITY {sample_id}.filtered.vcf.gz -Oz -o {sample_id}.dbnsfp.vcf.gz
+spliceai -I {sample_id}.dbnsfp.vcf.gz -O {sample_id}.predictors.vcf.gz -R {ref_fa} -A grch38
+vep -i {sample_id}.predictors.vcf.gz -o {sample_id}.vep.vcf --vcf --everything --offline --cache --assembly GRCh38
+"""
+        st.code(fastq_pipeline, language="bash")
+        st.download_button(
+            "⬇️ Download FASTQ-to-VCF pipeline script",
+            fastq_pipeline.encode(),
+            f"{sample_id.lower()}_fastq_to_vcf.sh",
+            "text/x-shellscript",
+        )
+        st.markdown("**Tool availability check on this host**")
+        _render_tool_status(["bwa", "samtools", "gatk", "bcftools", "spliceai", "vep"])
+        st.caption(
+            "Tip: run these commands on a compute server/HPC. Then upload the final VCF here."
+        )
 
     batch_files = st.file_uploader("Upload VCF files (up to 20)",
                                    type=_UPLOAD_TYPES,
@@ -1566,7 +1693,8 @@ elif mode == "📦 Batch Pipeline":
 
     if not batch_files:
         st.caption("Upload VCF files above to begin batch processing.")
-        st.stop()
+        if not include_fastq_pipeline and not do_vep_batch:
+            st.stop()
 
     if st.button("▶️ Run Batch Pipeline", type="primary"):
         all_dfs = []
@@ -1614,5 +1742,20 @@ elif mode == "📦 Batch Pipeline":
             st.download_button("⬇️ Download Combined CSV",
                                combined.to_csv(index=False).encode(),
                                "batch_combined_variants.csv", "text/csv")
+            if do_vep_batch:
+                vep_plan = (
+                    "# Run VEP for each filtered file in your batch\n"
+                    "# Example:\n"
+                    "for f in *.filtered.vcf.gz; do\n"
+                    "  vep -i \"$f\" -o \"${f%.vcf.gz}.vep.vcf\" --vcf --everything --offline --cache --assembly GRCh38\n"
+                    "done\n"
+                )
+                st.code(vep_plan, language="bash")
+                st.download_button(
+                    "⬇️ Download batch VEP plan",
+                    vep_plan.encode(),
+                    "batch_vep_plan.sh",
+                    "text/x-shellscript",
+                )
         else:
             st.error("No VCFs were processed successfully.")
