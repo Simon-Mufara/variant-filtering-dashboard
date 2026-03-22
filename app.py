@@ -71,7 +71,7 @@ from utils.plots import (
     chromosome_plot, variant_type_plot, quality_distribution,
     depth_distribution, af_scatter, tstv_plot, positional_track, annotate_with_genes,
 )
-APP_BUILD = "2026.03.22-layout-hotfix-modes"
+APP_BUILD = "2026.03.22-ai-clarity-layout"
 
 # Backward-compatible auth bindings (supports older deployed auth.py versions).
 require_auth = auth_mod.require_auth
@@ -133,6 +133,8 @@ if auth_ctx is None:
 
 if "ui_theme_choice" not in st.session_state:
     st.session_state["ui_theme_choice"] = "Light"
+if "ui_density" not in st.session_state:
+    st.session_state["ui_density"] = "Compact"
 
 _UI_ICONS = {
     "app": "🧬",
@@ -366,6 +368,9 @@ def _inject_theme_css(theme_name: str) -> None:
             border-left: 3px solid {palette["accent"]};
             padding-left: .45rem;
             margin-top: .3rem;
+          }}
+          .dense-divider {{
+            height: .35rem;
           }}
 
           [data-testid="metric-container"] {{
@@ -763,6 +768,27 @@ def _generate_acmg_interpretation(row: pd.Series, mode: str, teaching_mode: bool
         f"**Variant importance:** {importance}\n\n"
         f"{teaching_block}"
     )
+
+
+def _render_ai_usage_note() -> None:
+    with st.expander("🤖 How AI is used in this app", expanded=False):
+        st.markdown(
+            """
+            **Current behavior (transparent):**
+
+            - **No external LLM is called** for ACMG text generation right now.
+            - The interpretation assistant uses **rule-based ACMG-lite outputs** from your variant fields.
+            - Priority levels are computed by a **deterministic scoring heuristic** (rarity + impact + ClinVar + gene relevance).
+            - Dataset-level summaries are generated from in-app statistics (counts/distributions), not a black-box model.
+
+            **What is still automated:**
+
+            - Annotation enrichment (VEP, gnomAD, predictor parsing) where enabled.
+            - Structured guided/expert wording from your selected mode.
+
+            This is a **clinical triage support tool**, not a diagnostic AI system.
+            """
+        )
 
 
 def _run_step(command: str, workdir: str) -> None:
@@ -1259,8 +1285,15 @@ with st.sidebar:
         key="ui_theme_choice",
         help="Use Light for a white interface, Dark for low-light, or Auto to follow app base theme.",
     )
+    st.selectbox(
+        "🧱 Layout density",
+        ["Compact", "Comfortable"],
+        key="ui_density",
+        help="Compact hides non-essential guidance; Comfortable shows full helper panels.",
+    )
     render_user_status(auth_ctx)
-    st.divider()
+    if st.session_state.get("ui_density") == "Comfortable":
+        st.divider()
 
     with st.expander(f"{_UI_ICONS['workspace']} Workspace Settings", expanded=False):
         st.text_input("Organisation", key="workspace_org", placeholder="e.g. School of Health Sciences")
@@ -1282,11 +1315,12 @@ with st.sidebar:
         f'<div class="mode-badge">{_MODE_DESCRIPTIONS.get(mode, "Analysis workflow selected.")}</div>',
         unsafe_allow_html=True,
     )
-    _render_workflow_navigator(mode, active_step=1)
-    st.markdown(
-        '<div class="control-note">Use the workflow steps above, then adjust controls in each mode section below.</div>',
-        unsafe_allow_html=True,
-    )
+    if st.session_state.get("ui_density") == "Comfortable":
+        _render_workflow_navigator(mode, active_step=1)
+        st.markdown(
+            '<div class="control-note">Use the workflow steps above, then adjust controls in each mode section below.</div>',
+            unsafe_allow_html=True,
+        )
     if auth_ctx.role == "individual":
         st.caption("Role access: Individual users can run Single VCF workflows.")
     elif auth_ctx.role == "team_member":
@@ -1295,7 +1329,8 @@ with st.sidebar:
         st.caption("Role access: Organisation admins can run team workflows and batch pipelines.")
     else:
         st.caption("Role access: Admin users can manage platform settings and all workflows.")
-    st.divider()
+    if st.session_state.get("ui_density") == "Comfortable":
+        st.divider()
 
     # ── Credits ───────────────────────────────────────────────────────────────
     st.markdown(
@@ -1420,6 +1455,14 @@ if mode == "🔬 Single VCF":
                 st.success("✅ Predictor scores & prioritization auto-enabled for annotated example")
             st.caption("⚠️ API annotations (Ensembl/VEP/gnomAD) require internet; slow for large VCFs")
 
+        if st.session_state.get("ui_density") == "Comfortable":
+            with st.expander("🧭 Control Guide", expanded=False):
+                st.markdown(
+                    "- **Essential first:** Data Input + Variant Filters\n"
+                    "- **Optional:** Gene Panel + Annotations\n"
+                    "- Then use main tabs for interpretation and export."
+                )
+
     # ── Apply filters ─────────────────────────────────────────────────────────
     df = apply_filters(
         df_raw, min_quality=min_quality, min_depth=min_depth,
@@ -1461,6 +1504,7 @@ if mode == "🔬 Single VCF":
 
     # ── Header ────────────────────────────────────────────────────────────────
     st.title("🧬 Variant Analysis Suite")
+    _render_ai_usage_note()
     sample_cols = [c for c in df_raw.columns if c.startswith("sample_")]
     samples     = [c.replace("sample_", "").replace("_GT", "") for c in sample_cols]
     fname       = vcf_file.name if vcf_file else "example.vcf"
@@ -1470,10 +1514,11 @@ if mode == "🔬 Single VCF":
     if workspace_label:
         sub_parts.append(f"🏢 Workspace: **{workspace_label}**")
     st.caption("  ·  ".join(sub_parts))
-    st.info(
-        "🧭 Navigate left-to-right through tabs: start in **Overview**, "
-        "inspect **Statistics**, then export from **Data Table** or **Report**."
-    )
+    if st.session_state.get("ui_density") == "Comfortable":
+        st.info(
+            "🧭 Navigate left-to-right through tabs: start in **Overview**, "
+            "inspect **Statistics**, then export from **Data Table** or **Report**."
+        )
 
     pass_rate = round(len(df) / len(df_raw) * 100, 1) if len(df_raw) > 0 else 0
     stats = variant_stats(df)
