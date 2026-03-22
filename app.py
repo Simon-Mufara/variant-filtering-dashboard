@@ -3,6 +3,8 @@ import os
 import io
 import types
 import shutil
+import tempfile
+import subprocess
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -468,6 +470,148 @@ def _render_tool_status(tool_names: list[str]) -> None:
     st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
 
 
+def _run_step(command: str, workdir: str) -> None:
+    result = subprocess.run(
+        command,
+        shell=True,
+        cwd=workdir,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"Command failed ({result.returncode}):\n{command}\n\n{result.stdout}")
+
+
+def _execute_fastq_pipeline_locally(
+    sample_id: str,
+    ref_upload,
+    r1_upload,
+    r2_upload,
+    qc_tool: str,
+    trimming_tool: str,
+    caller_tool: str,
+    do_annotation: bool,
+    threads: int,
+) -> bytes:
+    if not ref_upload or not r1_upload or not r2_upload:
+        raise RuntimeError("Upload FASTA, FASTQ R1, and FASTQ R2 to run pipeline in-app.")
+
+    with tempfile.TemporaryDirectory(prefix="variant_pipeline_") as workdir:
+        ref_name = os.path.basename(ref_upload.name)
+        r1_name = os.path.basename(r1_upload.name)
+        r2_name = os.path.basename(r2_upload.name)
+        ref_path = os.path.join(workdir, ref_name)
+        r1_path = os.path.join(workdir, r1_name)
+        r2_path = os.path.join(workdir, r2_name)
+        with open(ref_path, "wb") as f:
+            f.write(ref_upload.getvalue())
+        with open(r1_path, "wb") as f:
+            f.write(r1_upload.getvalue())
+        with open(r2_path, "wb") as f:
+            f.write(r2_upload.getvalue())
+
+        r1_curr = r1_name
+        r2_curr = r2_name
+
+        if qc_tool == "FastQC + MultiQC":
+            _run_step(f"mkdir -p qc_raw && fastqc -t {threads} {r1_curr} {r2_curr} -o qc_raw && multiqc qc_raw -o qc_raw", workdir)
+        elif qc_tool == "FastQC only":
+            _run_step(f"mkdir -p qc_raw && fastqc -t {threads} {r1_curr} {r2_curr} -o qc_raw", workdir)
+        elif qc_tool == "fastp QC report":
+            _run_step(
+                f"fastp -i {r1_curr} -I {r2_curr} -h {sample_id}.fastp.html -j {sample_id}.fastp.json "
+                f"-w {threads} -o {sample_id}.qc_R1.fastq.gz -O {sample_id}.qc_R2.fastq.gz",
+                workdir,
+            )
+            r1_curr = f"{sample_id}.qc_R1.fastq.gz"
+            r2_curr = f"{sample_id}.qc_R2.fastq.gz"
+
+        if trimming_tool == "Trim Galore":
+            _run_step(f"mkdir -p trimmed && trim_galore --paired --cores {max(1, threads // 2)} {r1_curr} {r2_curr} -o trimmed", workdir)
+            r1_curr = os.path.basename(r1_curr).replace(".fastq.gz", "_val_1.fq.gz")
+            r2_curr = os.path.basename(r2_curr).replace(".fastq.gz", "_val_2.fq.gz")
+            r1_curr = f"trimmed/{r1_curr}"
+            r2_curr = f"trimmed/{r2_curr}"
+        elif trimming_tool == "fastp":
+            _run_step(
+                f"fastp -i {r1_curr} -I {r2_curr} -w {threads} "
+                f"-o {sample_id}.trim_R1.fastq.gz -O {sample_id}.trim_R2.fastq.gz "
+                f"-h {sample_id}.trim.fastp.html -j {sample_id}.trim.fastp.json",
+                workdir,
+            )
+            r1_curr = f"{sample_id}.trim_R1.fastq.gz"
+            r2_curr = f"{sample_id}.trim_R2.fastq.gz"
+        elif trimming_tool == "Trimmomatic":
+            _run_step(
+                f"trimmomatic PE -threads {threads} {r1_curr} {r2_curr} "
+                f"{sample_id}.trim_R1.fastq.gz {sample_id}.trim_R1.unpaired.fastq.gz "
+                f"{sample_id}.trim_R2.fastq.gz {sample_id}.trim_R2.unpaired.fastq.gz "
+                "ILLUMINACLIP:adapters.fa:2:30:10 LEADING:3 TRAILING:3 SLIDINGWINDOW:4:20 MINLEN:36",
+                workdir,
+            )
+            r1_curr = f"{sample_id}.trim_R1.fastq.gz"
+            r2_curr = f"{sample_id}.trim_R2.fastq.gz"
+
+        _run_step(
+            f"bwa mem -t {threads} {ref_name} {r1_curr} {r2_curr} | "
+            f"samtools sort -@ {threads} -o {sample_id}.sorted.bam && "
+            f"samtools index {sample_id}.sorted.bam",
+            workdir,
+        )
+        _run_step(
+            f"gatk MarkDuplicates -I {sample_id}.sorted.bam -O {sample_id}.dedup.bam -M {sample_id}.dup_metrics.txt && "
+            f"samtools index {sample_id}.dedup.bam",
+            workdir,
+        )
+
+        if caller_tool == "DeepVariant (recommended)":
+            _run_step(
+                "docker run --rm -v \"$PWD\":/input -v \"$PWD\":/output google/deepvariant:latest "
+                f"/opt/deepvariant/bin/run_deepvariant --model_type=WGS --ref=/input/{ref_name} "
+                f"--reads=/input/{sample_id}.dedup.bam --output_vcf=/output/{sample_id}.raw.vcf.gz "
+                f"--num_shards={threads}",
+                workdir,
+            )
+        elif caller_tool == "GATK HaplotypeCaller":
+            _run_step(f"gatk HaplotypeCaller -R {ref_name} -I {sample_id}.dedup.bam -O {sample_id}.raw.vcf.gz", workdir)
+        elif caller_tool == "FreeBayes":
+            _run_step(f"freebayes -f {ref_name} {sample_id}.dedup.bam | bgzip > {sample_id}.raw.vcf.gz", workdir)
+        else:
+            _run_step(
+                f"bcftools mpileup -f {ref_name} {sample_id}.dedup.bam | "
+                f"bcftools call -mv -Oz -o {sample_id}.raw.vcf.gz",
+                workdir,
+            )
+        _run_step(f"bcftools index {sample_id}.raw.vcf.gz", workdir)
+        _run_step(
+            f"bcftools filter -e 'QUAL<30 || DP<10' {sample_id}.raw.vcf.gz -Oz -o {sample_id}.filtered.vcf.gz && "
+            f"bcftools index {sample_id}.filtered.vcf.gz",
+            workdir,
+        )
+
+        final_vcf = f"{sample_id}.filtered.vcf.gz"
+        if do_annotation:
+            _run_step(
+                f"bcftools annotate -a dbNSFP4.4a_grch38.gz -c CHROM,POS,REF,ALT,CADD_PHRED,REVEL,AM_PATHOGENICITY "
+                f"{sample_id}.filtered.vcf.gz -Oz -o {sample_id}.dbnsfp.vcf.gz",
+                workdir,
+            )
+            _run_step(
+                f"spliceai -I {sample_id}.dbnsfp.vcf.gz -O {sample_id}.predictors.vcf.gz -R {ref_name} -A grch38",
+                workdir,
+            )
+            _run_step(
+                f"vep -i {sample_id}.predictors.vcf.gz -o {sample_id}.vep.vcf --vcf --everything --offline --cache --assembly GRCh38",
+                workdir,
+            )
+            final_vcf = f"{sample_id}.predictors.vcf.gz"
+
+        final_path = os.path.join(workdir, final_vcf)
+        with open(final_path, "rb") as f:
+            return f.read()
+
+
 def _render_automation_assistant(prefix: str = "auto") -> None:
     st.markdown('<div class="section-header">🧰 Automation Assistant</div>', unsafe_allow_html=True)
     automation_tabs = st.tabs(["🧪 Predictor/VEP Automation", "🧬 FASTQ → VCF Workflow"])
@@ -559,6 +703,12 @@ def _render_automation_assistant(prefix: str = "auto") -> None:
                 type=["fastq", "fq", "gz"],
                 key=f"{prefix}_r2_upload",
             )
+        run_no_cli = st.checkbox(
+            "Run pipeline inside app (no CLI)",
+            value=False,
+            key=f"{prefix}_run_no_cli",
+            help="Uses server-side tools directly. Requires FASTA + FASTQ uploads and installed bioinformatics tools.",
+        )
         ref_fa_cli = ref_upload.name if ref_upload else ref_fa
         fastq_r1_cli = r1_upload.name if r1_upload else fastq_r1
         fastq_r2_cli = r2_upload.name if r2_upload else fastq_r2
@@ -724,6 +874,32 @@ set -euo pipefail
         st.caption(
             "Tip: run these commands on a compute server/HPC. Then upload the final VCF here."
         )
+        if run_no_cli:
+            st.info("In-app execution enabled: upload FASTA, FASTQ R1, and FASTQ R2, then click Run.")
+            if st.button("▶️ Run FASTQ pipeline in app", key=f"{prefix}_run_pipeline_btn", type="primary"):
+                with st.spinner("Running FASTQ pipeline in app (this may take a while)..."):
+                    try:
+                        out_bytes = _execute_fastq_pipeline_locally(
+                            sample_id=sample_id,
+                            ref_upload=ref_upload,
+                            r1_upload=r1_upload,
+                            r2_upload=r2_upload,
+                            qc_tool=qc_tool,
+                            trimming_tool=trimming_tool,
+                            caller_tool=caller_tool,
+                            do_annotation=do_annotation,
+                            threads=threads,
+                        )
+                        st.success("Pipeline completed successfully.")
+                        st.download_button(
+                            "⬇️ Download result VCF",
+                            out_bytes,
+                            f"{sample_id}.result.vcf.gz",
+                            "application/gzip",
+                            key=f"{prefix}_download_run_result",
+                        )
+                    except RuntimeError as exc:
+                        st.error(str(exc))
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
