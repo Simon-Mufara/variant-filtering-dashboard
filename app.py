@@ -470,6 +470,81 @@ def _render_tool_status(tool_names: list[str]) -> None:
     st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
 
 
+def _pick_first(row: pd.Series, cols: list[str], default: str = "Unknown") -> str:
+    for c in cols:
+        if c in row and pd.notna(row[c]) and str(row[c]).strip() not in ("", "nan", "None"):
+            return str(row[c]).strip()
+    return default
+
+
+def _generate_acmg_interpretation(row: pd.Series, mode: str) -> str:
+    gene = _pick_first(row, ["vep_symbol", "gene_name", "gene", "Hugo_Symbol"], "Unknown")
+    chrom = _pick_first(row, ["chrom"], ".")
+    pos = _pick_first(row, ["position", "pos"], ".")
+    ref = _pick_first(row, ["ref"], ".")
+    alt = _pick_first(row, ["alt"], ".")
+    variant = f"{chrom}:{pos} {ref}>{alt}"
+    variant_type = _pick_first(row, ["variant_type"], "Unknown")
+    allele_frequency = _pick_first(row, ["gnomad_af", "af"], "Not available")
+    clinvar = _pick_first(row, ["ClinVar Significance"], "Unknown")
+    impact = _pick_first(row, ["vep_impact", "annotation"], "Not available")
+    acmg_class = _pick_first(row, ["acmg_class"], "VUS")
+    path_ev = _pick_first(row, ["acmg_path_evidence"], "—")
+    benign_ev = _pick_first(row, ["acmg_benign_evidence"], "—")
+
+    if mode == "guided":
+        interpretation = (
+            f"This variant is classified as **{acmg_class}** using ACMG-style triage rules. "
+            "ACMG combines different evidence types (population frequency, computational prediction, "
+            "and clinical reports) to estimate whether a variant is disease-causing."
+        )
+        supporting = (
+            f"- **Pathogenic evidence codes:** `{path_ev}`\n"
+            f"- **Benign evidence codes:** `{benign_ev}`\n"
+            f"- **Clinical evidence (ClinVar):** `{clinvar}`\n"
+            f"- **Predicted impact:** `{impact}`\n"
+            f"- **Population frequency:** `{allele_frequency}`"
+        )
+        biological = (
+            f"The variant occurs in **{gene}** and is represented as **{variant}** "
+            f"({variant_type}). Lower population frequency and stronger functional impact generally "
+            "increase concern for pathogenicity, while common population variants are usually benign."
+        )
+        recommendation = (
+            "Use this as **triage guidance**, then confirm with orthogonal evidence: phenotype match, "
+            "segregation in family, literature review, and clinical-grade tools (e.g., VarSome/InterVar)."
+        )
+    else:
+        interpretation = (
+            f"ACMG-lite assigns **{acmg_class}** for {gene} {variant} ({variant_type}), "
+            f"with evidence profile suggesting `{path_ev}` vs `{benign_ev}`."
+        )
+        supporting = (
+            f"- Pathogenic criteria: `{path_ev}`\n"
+            f"- Benign criteria: `{benign_ev}`\n"
+            f"- ClinVar: `{clinvar}`\n"
+            f"- Functional impact: `{impact}`\n"
+            f"- AF: `{allele_frequency}`"
+        )
+        biological = (
+            "Interpret in gene-disease context, molecular mechanism, and inheritance model; "
+            "evaluate transcript specificity and phenotype concordance."
+        )
+        recommendation = (
+            "Proceed with confirmatory review (segregation, phenotype correlation, and curated evidence) "
+            "before reporting."
+        )
+
+    return (
+        f"1. **Classification (ACMG-style)**\n\n"
+        f"**{acmg_class}**\n\n"
+        f"2. **Interpretation**\n\n{interpretation}\n\n"
+        f"3. **Supporting Evidence**\n\n{supporting}\n\n"
+        f"4. **Biological Context**\n\n{biological}\n\n"
+        f"5. **Recommendation / Next Step**\n\n{recommendation}"
+    )
+
+
 def _run_step(command: str, workdir: str) -> None:
     result = subprocess.run(
         command,
@@ -1472,6 +1547,36 @@ if mode == "🔬 Single VCF":
             st.download_button("⬇️ Download ACMG Classifications (CSV)",
                                acmg_disp.to_csv(index=False).encode(),
                                "acmg_classifications.csv", "text/csv")
+
+            st.divider()
+            st.markdown("### 🧠 ACMG Interpretation Assistant")
+            interp_mode = st.radio(
+                "Interpretation mode",
+                ["guided", "expert"],
+                horizontal=True,
+                key="acmg_interp_mode",
+            )
+            interp_options = [
+                f"{idx} | {_pick_first(r, ['vep_symbol', 'gene_name', 'gene', 'Hugo_Symbol'], 'Unknown')} | "
+                f"{_pick_first(r, ['chrom'], '.')}:{_pick_first(r, ['position', 'pos'], '.')} "
+                f"{_pick_first(r, ['ref'], '.')}>{_pick_first(r, ['alt'], '.')}"
+                for idx, r in df.reset_index(drop=True).head(500).iterrows()
+            ]
+            selected = st.selectbox(
+                "Select variant to interpret",
+                interp_options,
+                key="acmg_interp_variant",
+            )
+            sel_idx = int(str(selected).split("|", 1)[0].strip())
+            row = df.reset_index(drop=True).iloc[sel_idx]
+            interpretation_text = _generate_acmg_interpretation(row, mode=interp_mode)
+            st.markdown(interpretation_text)
+            st.download_button(
+                "⬇️ Download interpretation",
+                interpretation_text.encode(),
+                f"acmg_interpretation_{sel_idx}.md",
+                "text/markdown",
+            )
 
     # ── 10: Statistics ────────────────────────────────────────────────────────
     with tabs[10]:
