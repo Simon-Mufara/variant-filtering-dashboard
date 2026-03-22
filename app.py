@@ -99,7 +99,7 @@ from utils.plots import (
     chromosome_plot, variant_type_plot, quality_distribution,
     depth_distribution, af_scatter, tstv_plot, positional_track, annotate_with_genes,
 )
-APP_BUILD = "2026.03.22-auth-guestfix"
+APP_BUILD = "2026.03.22-layout-controlcenter"
 
 # Backward-compatible auth bindings (supports older deployed auth.py versions).
 require_auth = auth_mod.require_auth
@@ -180,6 +180,62 @@ _MODE_DESCRIPTIONS = {
     "📦 Batch Pipeline": "Run batch workflows across multiple projects and cases.",
     "🛠️ Admin Console": "Manage organisations, teams, users, and platform governance.",
 }
+
+
+def _mode_workflow(mode_name: str) -> list[tuple[str, str, str]]:
+    workflows = {
+        "🔬 Single VCF": [
+            ("📥", "Load Data", "Upload one variant file or use a built-in example."),
+            ("⚙️", "Tune Filters", "Set quality/depth/AF and panel constraints."),
+            ("🧪", "Run Annotation", "Enable VEP/gnomAD/predictor enrichment as needed."),
+            ("📊", "Interpret Results", "Use Overview, ACMG, Stats, and Report tabs."),
+        ],
+        "⚖️ Multi-VCF Compare": [
+            ("📥", "Upload Cohort", "Load 2–10 VCF files."),
+            ("🧮", "Compare Sets", "Review concordance heatmap and pairwise overlap."),
+            ("🔎", "Inspect Differences", "Open pairwise tabs for shared/unique variants."),
+        ],
+        "👨‍👩‍👧 Trio Analysis": [
+            ("📥", "Load Trio", "Upload proband + mother + father VCFs."),
+            ("🧬", "Infer Inheritance", "Compute de novo and recessive patterns."),
+            ("🎯", "Review Candidates", "Prioritize inheritance-consistent variants."),
+        ],
+        "🧫 Somatic (Tumor/Normal)": [
+            ("📥", "Load Paired VCFs", "Upload matched tumor and normal files."),
+            ("🧪", "Subtract Germline", "Identify tumor-only candidate events."),
+            ("📉", "Characterize Clones", "Inspect VAF and clonal architecture."),
+        ],
+        "📦 Batch Pipeline": [
+            ("📁", "Upload Batch", "Load multiple variant files."),
+            ("⚙️", "Configure Pipeline", "Set processing and automation options."),
+            ("🚀", "Run + Export", "Generate outputs and summary deliverables."),
+        ],
+        "🛠️ Admin Console": [
+            ("👥", "Manage Users", "Create and maintain role-based access."),
+            ("🏢", "Govern Workspace", "Control organization/team structures."),
+            ("📌", "Track Platform", "Review notes and operational settings."),
+        ],
+    }
+    return workflows.get(mode_name, [("🧭", "Workflow", "Follow mode guidance in sequence.")])
+
+
+def _render_workflow_navigator(mode_name: str, active_step: int = 1) -> None:
+    st.markdown("#### 🗺️ Workflow Navigator")
+    steps = _mode_workflow(mode_name)
+    for idx, (icon, title, desc) in enumerate(steps, start=1):
+        active_cls = "workflow-item-active" if idx == active_step else ""
+        st.markdown(
+            f"""
+            <div class="workflow-item {active_cls}">
+              <div class="workflow-step">{idx}</div>
+              <div>
+                <div class="workflow-title">{icon} {title}</div>
+                <div class="workflow-desc">{desc}</div>
+              </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
 
 def _resolve_theme_name(choice: str) -> str:
@@ -292,6 +348,51 @@ def _inject_theme_css(theme_name: str) -> None:
             font-size: .76rem;
             color: {palette["sidebar_text"]};
             box-shadow: 0 0 0 1px {palette["accent_ring"]} inset;
+          }}
+          .workflow-item {{
+            display: flex;
+            gap: .55rem;
+            border: 1px solid {palette["sidebar_border"]};
+            border-radius: 10px;
+            padding: .45rem .5rem;
+            margin-top: .35rem;
+            background: {palette["metric_bg"]};
+          }}
+          .workflow-item-active {{
+            box-shadow: 0 0 0 1px {palette["accent_ring"]} inset;
+            background: {palette["accent_soft"]};
+          }}
+          .workflow-step {{
+            min-width: 1.35rem;
+            height: 1.35rem;
+            border-radius: 999px;
+            background: {palette["accent"]};
+            color: white;
+            font-size: .72rem;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-top: .08rem;
+          }}
+          .workflow-title {{
+            font-size: .76rem;
+            font-weight: 700;
+            color: {palette["sidebar_heading"]};
+            line-height: 1.25;
+          }}
+          .workflow-desc {{
+            font-size: .69rem;
+            color: {palette["sidebar_muted"]};
+            line-height: 1.3;
+            margin-top: .1rem;
+          }}
+          .control-note {{
+            font-size: .72rem;
+            color: {palette["sidebar_muted"]};
+            border-left: 3px solid {palette["accent"]};
+            padding-left: .45rem;
+            margin-top: .3rem;
           }}
 
           [data-testid="metric-container"] {{
@@ -1208,6 +1309,11 @@ with st.sidebar:
         f'<div class="mode-badge">{_MODE_DESCRIPTIONS.get(mode, "Analysis workflow selected.")}</div>',
         unsafe_allow_html=True,
     )
+    _render_workflow_navigator(mode, active_step=1)
+    st.markdown(
+        '<div class="control-note">Use the workflow steps above, then adjust controls in each mode section below.</div>',
+        unsafe_allow_html=True,
+    )
     if auth_ctx.role == "individual":
         st.caption("Role access: Individual users can run Single VCF workflows.")
     elif auth_ctx.role == "team_member":
@@ -1255,6 +1361,8 @@ _UPLOAD_TYPES = supported_extensions()
 if mode == "🔬 Single VCF":
 
     with st.sidebar:
+        st.markdown("#### 🎛️ Tool Controls")
+        st.caption("Organized by data, filtering, and annotation.")
         with st.expander(f"{_UI_ICONS['data']} Data Input", expanded=True):
             vcf_file = st.file_uploader(
                 "Upload variant file",
@@ -1958,6 +2066,8 @@ if mode == "🔬 Single VCF":
 elif mode == "⚖️ Multi-VCF Compare":
 
     with st.sidebar:
+        st.markdown("#### 🎛️ Tool Controls")
+        st.caption("Configure cohort upload and comparison scope.")
         with st.expander(f"{_UI_ICONS['data']} Upload VCF Files", expanded=True):
             n_vcfs = st.slider("Number of VCFs to compare", 2, 10, 2)
             uploaded = []
@@ -2091,6 +2201,8 @@ elif mode == "⚖️ Multi-VCF Compare":
 elif mode == "👨‍👩‍👧 Trio Analysis":
 
     with st.sidebar:
+        st.markdown("#### 🎛️ Tool Controls")
+        st.caption("Set trio inputs before inheritance analysis.")
         with st.expander(f"{_UI_ICONS['data']} Upload Trio VCFs", expanded=True):
             f_proband = st.file_uploader("👶 Proband (affected)", type=_UPLOAD_TYPES, key="trio_prob")
             f_mother  = st.file_uploader("👩 Mother",              type=_UPLOAD_TYPES, key="trio_mom")
@@ -2158,6 +2270,8 @@ elif mode == "👨‍👩‍👧 Trio Analysis":
 elif mode == "🧫 Somatic (Tumor/Normal)":
 
     with st.sidebar:
+        st.markdown("#### 🎛️ Tool Controls")
+        st.caption("Configure paired analysis inputs.")
         with st.expander(f"{_UI_ICONS['data']} Upload Paired VCFs", expanded=True):
             f_tumor  = st.file_uploader("🔬 Tumor VCF",  type=_UPLOAD_TYPES, key="som_tumor")
             f_normal = st.file_uploader("✅ Normal VCF", type=_UPLOAD_TYPES, key="som_normal")
