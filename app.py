@@ -99,6 +99,7 @@ from utils.plots import (
     chromosome_plot, variant_type_plot, quality_distribution,
     depth_distribution, af_scatter, tstv_plot, positional_track, annotate_with_genes,
 )
+APP_BUILD = "2026.03.22-acmgx-top10"
 
 # Backward-compatible auth bindings (supports older deployed auth.py versions).
 require_auth = auth_mod.require_auth
@@ -1173,7 +1174,7 @@ with st.sidebar:
         <div class="app-brand">
           <div class="app-brand-icon">{_UI_ICONS["app"]}</div>
           <div class="app-brand-title">Variant Analysis Suite</div>
-          <div class="app-brand-subtitle">v3.1 · Clinical Research Workspace</div>
+          <div class="app-brand-subtitle">v3.2 · Clinical Research Workspace · build {APP_BUILD}</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -1741,6 +1742,46 @@ if mode == "🔬 Single VCF":
                 f"acmg_interpretation_{sel_idx}.md",
                 "text/markdown",
             )
+            st.divider()
+            st.markdown("### 📚 Batch Interpretations (Top 10)")
+            use_priority_order = st.checkbox(
+                "Use priority score ordering when available",
+                value=True,
+                key="acmg_batch_use_priority",
+            )
+            if use_priority_order and "priority_score" in df_reset.columns:
+                top_df = df_reset.sort_values("priority_score", ascending=False).head(10).reset_index(drop=False)
+            else:
+                top_df = df_reset.head(10).reset_index(drop=False)
+
+            if st.button("🧠 Generate interpretations for Top 10", key="acmg_batch_generate_top10"):
+                outputs = []
+                for _, r in top_df.iterrows():
+                    ridx = int(r.get("index", 0))
+                    hdr = (
+                        f"## Variant #{ridx} — "
+                        f"{_pick_first(r, ['vep_symbol', 'gene_name', 'gene', 'Hugo_Symbol'], 'Unknown')} "
+                        f"{_pick_first(r, ['chrom'], '.')}:{_pick_first(r, ['position', 'pos'], '.')} "
+                        f"{_pick_first(r, ['ref'], '.')}>{_pick_first(r, ['alt'], '.')}"
+                    )
+                    body = _generate_acmg_interpretation(
+                        r,
+                        mode=interp_mode,
+                        teaching_mode=teaching_mode,
+                    )
+                    plevel, preason = _priority_assessment(r, mode=interp_mode)
+                    outputs.append(
+                        f"{hdr}\n\n{body}\n\n### Priority\n\n- Level: {plevel}\n- Justification: {preason}\n"
+                    )
+                compiled = "\n\n---\n\n".join(outputs)
+                st.success("Top 10 interpretations generated.")
+                st.download_button(
+                    "⬇️ Download Top 10 interpretations",
+                    compiled.encode(),
+                    "acmg_top10_interpretations.md",
+                    "text/markdown",
+                    key="acmg_batch_download_top10",
+                )
 
     # ── 10: Statistics ────────────────────────────────────────────────────────
     with tabs[10]:
