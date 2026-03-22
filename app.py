@@ -477,7 +477,115 @@ def _pick_first(row: pd.Series, cols: list[str], default: str = "Unknown") -> st
     return default
 
 
-def _generate_acmg_interpretation(row: pd.Series, mode: str) -> str:
+def _to_float(val):
+    try:
+        return float(val)
+    except (TypeError, ValueError):
+        return None
+
+
+def _priority_assessment(row: pd.Series, mode: str) -> tuple[str, str]:
+    af = _to_float(_pick_first(row, ["gnomad_af", "af"], ""))
+    impact = _pick_first(row, ["vep_impact", "annotation"], "Unknown").lower()
+    clinvar = _pick_first(row, ["ClinVar Significance"], "Unknown")
+    gene = _pick_first(row, ["vep_symbol", "gene_name", "gene", "Hugo_Symbol"], "Unknown")
+
+    score = 0
+    reasons = []
+
+    if af is None:
+        score += 2
+        reasons.append("Population rarity unknown (treated conservatively).")
+    elif af < 0.001:
+        score += 3
+        reasons.append(f"Very rare in population datasets (AF={af:.4g}).")
+    elif af < 0.01:
+        score += 2
+        reasons.append(f"Rare in population datasets (AF={af:.4g}).")
+    else:
+        reasons.append(f"Not rare in population datasets (AF={af:.4g}).")
+
+    if any(k in impact for k in ["high", "stop_gained", "frameshift", "splice"]):
+        score += 3
+        reasons.append("Predicted high functional impact.")
+    elif any(k in impact for k in ["moderate", "missense"]):
+        score += 2
+        reasons.append("Predicted moderate functional impact.")
+    else:
+        reasons.append("No strong functional-impact signal.")
+
+    if "pathogenic" in clinvar.lower():
+        score += 3
+        reasons.append("ClinVar reports pathogenic/likely pathogenic evidence.")
+    elif "benign" in clinvar.lower():
+        score -= 2
+        reasons.append("ClinVar reports benign/likely benign evidence.")
+    else:
+        reasons.append("No decisive ClinVar consensus.")
+
+    high_relevance_genes = {"TP53", "BRCA1", "BRCA2", "KRAS", "EGFR", "PIK3CA", "PTEN", "APC"}
+    if str(gene).upper() in high_relevance_genes:
+        score += 2
+        reasons.append(f"Gene {gene} is a high-priority disease gene.")
+    else:
+        reasons.append(f"Gene-specific disease relevance requires context review ({gene}).")
+
+    if score >= 7:
+        level = "High"
+    elif score >= 4:
+        level = "Medium"
+    else:
+        level = "Low"
+
+    if mode == "guided":
+        justification = (
+            "We prioritize variants by combining rarity, predicted effect, clinical database signals, "
+            "and whether the gene is strongly linked to disease.\n"
+            + "\n".join([f"- {r}" for r in reasons])
+        )
+    else:
+        justification = " | ".join(reasons[:4])
+    return level, justification
+
+
+def _generate_dataset_interpretation(df: pd.DataFrame, mode: str) -> str:
+    total = len(df)
+    acmg_counts = df["acmg_class"].value_counts().to_dict() if "acmg_class" in df.columns else {}
+    gene_col = next((c for c in ["vep_symbol", "gene_name", "gene", "Hugo_Symbol"] if c in df.columns), None)
+    top_genes = []
+    if gene_col:
+        top_genes = df[gene_col].dropna().astype(str)
+        top_genes = [g for g in top_genes if g.strip() not in ("", "nan", "None")]
+        top_genes = pd.Series(top_genes).value_counts().head(10).index.tolist() if top_genes else []
+
+    high_impact_count = 0
+    if "vep_impact" in df.columns:
+        high_impact_count = int(df["vep_impact"].astype(str).str.contains("HIGH", case=False, na=False).sum())
+    elif "annotation" in df.columns:
+        high_impact_count = int(
+            df["annotation"].astype(str).str.contains("stop_gained|frameshift|splice", case=False, na=False).sum()
+        )
+
+    if mode == "guided":
+        return (
+            f"- **Total variants:** {total:,} (this is the full number of candidates after filters)\n"
+            f"- **ACMG class distribution:** {acmg_counts if acmg_counts else 'Not available'} "
+            "(helps estimate likely clinical significance mix)\n"
+            f"- **Key genes of interest:** {', '.join(top_genes[:5]) if top_genes else 'Not available'} "
+            "(frequently hit genes may indicate biologically relevant pathways)\n"
+            f"- **Notable high-impact variants:** {high_impact_count:,} "
+            "(higher-impact variants are often prioritized for review)\n\n"
+            "Overall biological interpretation: assess whether the observed variant pattern matches expected disease biology.\n"
+            "Suggested next steps: phenotype correlation, segregation analysis, orthogonal validation, and curated review."
+        )
+    return (
+        f"Total={total:,}; ACMG={acmg_counts if acmg_counts else 'NA'}; "
+        f"Top genes={', '.join(top_genes[:5]) if top_genes else 'NA'}; High-impact={high_impact_count:,}. "
+        "Next: phenotype concordance + clinical-grade curation."
+    )
+
+
+def _generate_acmg_interpretation(row: pd.Series, mode: str, teaching_mode: bool = False) -> str:
     gene = _pick_first(row, ["vep_symbol", "gene_name", "gene", "Hugo_Symbol"], "Unknown")
     chrom = _pick_first(row, ["chrom"], ".")
     pos = _pick_first(row, ["position", "pos"], ".")
@@ -491,17 +599,26 @@ def _generate_acmg_interpretation(row: pd.Series, mode: str) -> str:
     acmg_class = _pick_first(row, ["acmg_class"], "VUS")
     path_ev = _pick_first(row, ["acmg_path_evidence"], "—")
     benign_ev = _pick_first(row, ["acmg_benign_evidence"], "—")
+    cosmic = _pick_first(row, ["COSMIC", "cosmic", "cosmic_id", "cosmic_ids"], "Not available")
 
     if mode == "guided":
         interpretation = (
-            f"This variant is classified as **{acmg_class}** using ACMG-style triage rules. "
-            "ACMG combines different evidence types (population frequency, computational prediction, "
-            "and clinical reports) to estimate whether a variant is disease-causing."
+            f"Step-by-step interpretation for **{gene} {variant}**.\n\n"
+            f"1) **Gene role** — {gene} is interpreted in disease context (tumor suppressor/oncogene context if relevant).\n"
+            "Why it matters: the same variant can have different significance depending on gene function.\n\n"
+            f"2) **Mutation type** — `{variant_type}` means a specific DNA change class (e.g., missense/indel/LoF).\n"
+            "Why it matters: mutation class influences expected protein disruption.\n\n"
+            f"3) **Allele frequency** — observed as `{allele_frequency}` in population datasets.\n"
+            "Why it matters: rarer variants are more likely to be clinically relevant in rare disease contexts.\n\n"
+            f"4) **Database evidence** — ClinVar=`{clinvar}`, COSMIC=`{cosmic}`, gnomAD AF=`{allele_frequency}`.\n"
+            "Why it matters: convergence across curated sources strengthens interpretation.\n\n"
+            f"5) **Evidence integration** — pathogenic codes `{path_ev}` vs benign codes `{benign_ev}` are combined under ACMG logic."
         )
         supporting = (
             f"- **Pathogenic evidence codes:** `{path_ev}`\n"
             f"- **Benign evidence codes:** `{benign_ev}`\n"
             f"- **Clinical evidence (ClinVar):** `{clinvar}`\n"
+            f"- **Cancer evidence (COSMIC):** `{cosmic}`\n"
             f"- **Predicted impact:** `{impact}`\n"
             f"- **Population frequency:** `{allele_frequency}`"
         )
@@ -514,6 +631,12 @@ def _generate_acmg_interpretation(row: pd.Series, mode: str) -> str:
             "Use this as **triage guidance**, then confirm with orthogonal evidence: phenotype match, "
             "segregation in family, literature review, and clinical-grade tools (e.g., VarSome/InterVar)."
         )
+        confidence = (
+            "High" if acmg_class in {"Pathogenic", "Benign"} else
+            "Moderate" if acmg_class in {"Likely Pathogenic", "Likely Benign"} else
+            "Low-to-Moderate"
+        )
+        importance = "Important for review" if acmg_class in {"Pathogenic", "Likely Pathogenic", "VUS"} else "Lower immediate concern"
     else:
         interpretation = (
             f"ACMG-lite assigns **{acmg_class}** for {gene} {variant} ({variant_type}), "
@@ -523,6 +646,7 @@ def _generate_acmg_interpretation(row: pd.Series, mode: str) -> str:
             f"- Pathogenic criteria: `{path_ev}`\n"
             f"- Benign criteria: `{benign_ev}`\n"
             f"- ClinVar: `{clinvar}`\n"
+            f"- COSMIC: `{cosmic}`\n"
             f"- Functional impact: `{impact}`\n"
             f"- AF: `{allele_frequency}`"
         )
@@ -534,6 +658,24 @@ def _generate_acmg_interpretation(row: pd.Series, mode: str) -> str:
             "Proceed with confirmatory review (segregation, phenotype correlation, and curated evidence) "
             "before reporting."
         )
+        confidence = (
+            "High" if acmg_class in {"Pathogenic", "Benign"} else
+            "Moderate" if acmg_class in {"Likely Pathogenic", "Likely Benign"} else
+            "Low-to-Moderate"
+        )
+        importance = "Priority review" if acmg_class in {"Pathogenic", "Likely Pathogenic", "VUS"} else "Lower priority"
+
+    teaching_block = ""
+    if teaching_mode and mode == "guided":
+        teaching_block = (
+            "6. **Teaching Mode — Guided Questions**\n\n"
+            f"- **Q1:** Is the variant rare enough to suspect disease relevance?  \n"
+            f"  **A:** AF is `{allele_frequency}`; lower AF generally increases suspicion, especially with strong impact.\n"
+            f"- **Q2:** Do functional impact and database evidence agree?  \n"
+            f"  **A:** Impact=`{impact}`, ClinVar=`{clinvar}`, evidence codes `{path_ev}`/`{benign_ev}`; concordance increases confidence.\n\n"
+            "Reasoning strategy: start with rarity and impact, then check curated clinical databases, "
+            "then apply ACMG evidence weighting."
+        )
 
     return (
         f"1. **Classification (ACMG-style)**\n\n"
@@ -541,7 +683,10 @@ def _generate_acmg_interpretation(row: pd.Series, mode: str) -> str:
         f"2. **Interpretation**\n\n{interpretation}\n\n"
         f"3. **Supporting Evidence**\n\n{supporting}\n\n"
         f"4. **Biological Context**\n\n{biological}\n\n"
-        f"5. **Recommendation / Next Step**\n\n{recommendation}"
+        f"5. **Recommendation / Next Step**\n\n{recommendation}\n\n"
+        f"**Confidence level:** {confidence}  \n"
+        f"**Variant importance:** {importance}\n\n"
+        f"{teaching_block}"
     )
 
 
@@ -1556,6 +1701,12 @@ if mode == "🔬 Single VCF":
                 horizontal=True,
                 key="acmg_interp_mode",
             )
+            teaching_mode = st.checkbox(
+                "Enable teaching mode (guided only)",
+                value=False,
+                key="acmg_teaching_mode",
+                help="Adds guiding questions and explicit reasoning steps for learners.",
+            )
             interp_options = [
                 f"{idx} | {_pick_first(r, ['vep_symbol', 'gene_name', 'gene', 'Hugo_Symbol'], 'Unknown')} | "
                 f"{_pick_first(r, ['chrom'], '.')}:{_pick_first(r, ['position', 'pos'], '.')} "
@@ -1568,9 +1719,22 @@ if mode == "🔬 Single VCF":
                 key="acmg_interp_variant",
             )
             sel_idx = int(str(selected).split("|", 1)[0].strip())
-            row = df.reset_index(drop=True).iloc[sel_idx]
-            interpretation_text = _generate_acmg_interpretation(row, mode=interp_mode)
+            df_reset = df.reset_index(drop=True)
+            row = df_reset.iloc[sel_idx]
+            interpretation_text = _generate_acmg_interpretation(
+                row,
+                mode=interp_mode,
+                teaching_mode=teaching_mode,
+            )
             st.markdown(interpretation_text)
+
+            priority_level, priority_reason = _priority_assessment(row, mode=interp_mode)
+            st.markdown("### 🚨 Priority / Flagging Engine")
+            st.markdown(f"**Priority Level:** {priority_level}")
+            st.markdown(f"**Justification:** {priority_reason}")
+
+            st.markdown("### 📊 Dataset-Level Interpretation")
+            st.markdown(_generate_dataset_interpretation(df_reset, mode=interp_mode))
             st.download_button(
                 "⬇️ Download interpretation",
                 interpretation_text.encode(),
