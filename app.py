@@ -71,7 +71,7 @@ from utils.plots import (
     chromosome_plot, variant_type_plot, quality_distribution,
     depth_distribution, af_scatter, tstv_plot, positional_track, annotate_with_genes,
 )
-APP_BUILD = "2026.03.22-layout-polish-v3"
+APP_BUILD = "2026.03.22-professional-polish-v4"
 
 # Backward-compatible auth bindings (supports older deployed auth.py versions).
 require_auth = auth_mod.require_auth
@@ -316,7 +316,7 @@ def _inject_theme_css(theme_name: str) -> None:
         <style>
           @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
           html, body, [class*="css"] {{ font-family: 'Inter', sans-serif; }}
-          .block-container {{ padding-top: 0.8rem; padding-bottom: 1rem; }}
+          .block-container {{ padding-top: 0.75rem; padding-bottom: 1rem; max-width: 1500px; }}
           [data-testid="stAppViewContainer"] {{
             background: {palette["page_bg"]};
           }}
@@ -428,10 +428,10 @@ def _inject_theme_css(theme_name: str) -> None:
           [data-testid="metric-container"] [data-testid="stMetricValue"] {{ color: {palette["section_text"]}; font-weight: 700; }}
 
           .stTabs [data-baseweb="tab-list"] {{
-            gap: 6px; background: {palette["tabs_bg"]}; border-radius: 10px; padding: 6px;
+            gap: 5px; background: {palette["tabs_bg"]}; border-radius: 10px; padding: 5px;
           }}
           .stTabs [data-baseweb="tab"] {{
-            border-radius: 8px; padding: .45rem .95rem; font-size: .85rem; font-weight: 600;
+            border-radius: 8px; padding: .4rem .85rem; font-size: .82rem; font-weight: 600;
             color: {palette["tabs_text"]};
             border: 1px solid transparent;
           }}
@@ -481,6 +481,26 @@ def _inject_theme_css(theme_name: str) -> None:
             margin: .12rem .25rem .12rem 0;
             background: {palette["accent_soft"]};
             color: {palette["section_text"]};
+          }}
+          .exec-strip {{
+            border: 1px solid {palette["metric_border"]};
+            border-radius: 12px;
+            background: {palette["metric_bg"]};
+            box-shadow: {palette["card_shadow"]};
+            padding: .55rem .75rem;
+            margin-bottom: .55rem;
+          }}
+          .exec-title {{
+            font-size: .8rem;
+            color: {palette["sidebar_muted"]};
+            text-transform: uppercase;
+            letter-spacing: .05em;
+            font-weight: 700;
+          }}
+          .exec-line {{
+            font-size: .84rem;
+            color: {palette["section_text"]};
+            margin-top: .2rem;
           }}
         </style>
         """,
@@ -1750,6 +1770,15 @@ if mode == "🔬 Single VCF":
             "🧭 Navigate left-to-right through tabs: start in **Overview**, "
             "inspect **Statistics**, then export from **Data Table** or **Report**."
         )
+    st.markdown(
+        """
+        <div class="exec-strip">
+          <div class="exec-title">Executive Analysis Flow</div>
+          <div class="exec-line">Ingest → Filter → Annotate → Prioritize → Validate (QC) → Export</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
     pass_rate = round(len(df) / len(df_raw) * 100, 1) if len(df_raw) > 0 else 0
     stats = variant_stats(df)
