@@ -513,19 +513,20 @@ def _render_automation_assistant(prefix: str = "auto") -> None:
             f"--assembly {'GRCh38' if genome_build_cmd == 'grch38' else 'GRCh37'}"
         )
 
-        st.code(predictor_cmd, language="bash")
-        st.code(spliceai_cmd, language="bash")
-        st.code(vep_cmd, language="bash")
-        st.download_button(
-            "⬇️ Download annotation command script",
-            (
-                "#!/usr/bin/env bash\nset -euo pipefail\n\n"
-                f"{predictor_cmd}\n{spliceai_cmd}\n{vep_cmd}\n"
-            ).encode(),
-            "run_annotation_pipeline.sh",
-            "text/x-shellscript",
-            key=f"{prefix}_download_annotation_script",
-        )
+        with st.expander("🧾 CLI (click to show annotation commands)", expanded=False):
+            st.code(predictor_cmd, language="bash")
+            st.code(spliceai_cmd, language="bash")
+            st.code(vep_cmd, language="bash")
+            st.download_button(
+                "⬇️ Download annotation command script",
+                (
+                    "#!/usr/bin/env bash\nset -euo pipefail\n\n"
+                    f"{predictor_cmd}\n{spliceai_cmd}\n{vep_cmd}\n"
+                ).encode(),
+                "run_annotation_pipeline.sh",
+                "text/x-shellscript",
+                key=f"{prefix}_download_annotation_script",
+            )
         st.markdown("**Tool availability check on this host**")
         _render_tool_status(["bcftools", "spliceai", "vep"])
 
@@ -538,6 +539,29 @@ def _render_automation_assistant(prefix: str = "auto") -> None:
         ref_fa = st.text_input("Reference FASTA path", value="genome.fa", key=f"{prefix}_ref_fa")
         fastq_r1 = st.text_input("FASTQ R1 path", value="sample_R1.fastq.gz", key=f"{prefix}_r1")
         fastq_r2 = st.text_input("FASTQ R2 path", value="sample_R2.fastq.gz", key=f"{prefix}_r2")
+        st.caption("Or upload files to auto-fill CLI filenames")
+        u1, u2, u3 = st.columns(3)
+        with u1:
+            ref_upload = st.file_uploader(
+                "Upload FASTA",
+                type=["fa", "fasta", "fna", "gz"],
+                key=f"{prefix}_ref_upload",
+            )
+        with u2:
+            r1_upload = st.file_uploader(
+                "Upload FASTQ R1",
+                type=["fastq", "fq", "gz"],
+                key=f"{prefix}_r1_upload",
+            )
+        with u3:
+            r2_upload = st.file_uploader(
+                "Upload FASTQ R2",
+                type=["fastq", "fq", "gz"],
+                key=f"{prefix}_r2_upload",
+            )
+        ref_fa_cli = ref_upload.name if ref_upload else ref_fa
+        fastq_r1_cli = r1_upload.name if r1_upload else fastq_r1
+        fastq_r2_cli = r2_upload.name if r2_upload else fastq_r2
         qc_tool = st.selectbox(
             "QC tool",
             ["FastQC + MultiQC", "FastQC only", "fastp QC report", "Skip QC"],
@@ -564,32 +588,32 @@ def _render_automation_assistant(prefix: str = "auto") -> None:
         if qc_tool == "FastQC + MultiQC":
             qc_block = (
                 f"# 0) Raw read QC\n"
-                f"fastqc -t {threads} {fastq_r1} {fastq_r2} -o qc_raw/\n"
+                f"fastqc -t {threads} {fastq_r1_cli} {fastq_r2_cli} -o qc_raw/\n"
                 "multiqc qc_raw -o qc_raw/\n\n"
             )
         elif qc_tool == "FastQC only":
             qc_block = (
                 f"# 0) Raw read QC\n"
-                f"fastqc -t {threads} {fastq_r1} {fastq_r2} -o qc_raw/\n\n"
+                f"fastqc -t {threads} {fastq_r1_cli} {fastq_r2_cli} -o qc_raw/\n\n"
             )
         elif qc_tool == "fastp QC report":
             qc_block = (
                 f"# 0) Raw read QC (fastp)\n"
-                f"fastp -i {fastq_r1} -I {fastq_r2} -h {sample_id}.fastp.html -j {sample_id}.fastp.json "
+                f"fastp -i {fastq_r1_cli} -I {fastq_r2_cli} -h {sample_id}.fastp.html -j {sample_id}.fastp.json "
                 f"-w {threads} -o {sample_id}.qc_R1.fastq.gz -O {sample_id}.qc_R2.fastq.gz\n\n"
             )
 
         if trimming_tool == "Trim Galore":
             trim_block = (
                 "# 1) Adapter/quality trimming (Trim Galore)\n"
-                f"trim_galore --paired --cores {max(1, threads // 2)} {fastq_r1} {fastq_r2} -o trimmed/\n"
-                f"R1=trimmed/{os.path.basename(fastq_r1).replace('.fastq.gz', '_val_1.fq.gz')}\n"
-                f"R2=trimmed/{os.path.basename(fastq_r2).replace('.fastq.gz', '_val_2.fq.gz')}\n\n"
+                f"trim_galore --paired --cores {max(1, threads // 2)} {fastq_r1_cli} {fastq_r2_cli} -o trimmed/\n"
+                f"R1=trimmed/{os.path.basename(fastq_r1_cli).replace('.fastq.gz', '_val_1.fq.gz')}\n"
+                f"R2=trimmed/{os.path.basename(fastq_r2_cli).replace('.fastq.gz', '_val_2.fq.gz')}\n\n"
             )
         elif trimming_tool == "fastp":
             trim_block = (
                 "# 1) Adapter/quality trimming (fastp)\n"
-                f"fastp -i {fastq_r1} -I {fastq_r2} -w {threads} "
+                f"fastp -i {fastq_r1_cli} -I {fastq_r2_cli} -w {threads} "
                 f"-o {sample_id}.trim_R1.fastq.gz -O {sample_id}.trim_R2.fastq.gz "
                 f"-h {sample_id}.trim.fastp.html -j {sample_id}.trim.fastp.json\n"
                 f"R1={sample_id}.trim_R1.fastq.gz\n"
@@ -598,7 +622,7 @@ def _render_automation_assistant(prefix: str = "auto") -> None:
         elif trimming_tool == "Trimmomatic":
             trim_block = (
                 "# 1) Adapter/quality trimming (Trimmomatic)\n"
-                f"trimmomatic PE -threads {threads} {fastq_r1} {fastq_r2} "
+                f"trimmomatic PE -threads {threads} {fastq_r1_cli} {fastq_r2_cli} "
                 f"{sample_id}.trim_R1.fastq.gz {sample_id}.trim_R1.unpaired.fastq.gz "
                 f"{sample_id}.trim_R2.fastq.gz {sample_id}.trim_R2.unpaired.fastq.gz "
                 "ILLUMINACLIP:adapters.fa:2:30:10 LEADING:3 TRAILING:3 SLIDINGWINDOW:4:20 MINLEN:36\n"
@@ -608,13 +632,13 @@ def _render_automation_assistant(prefix: str = "auto") -> None:
         else:
             trim_block = (
                 "# 1) No trimming selected\n"
-                f"R1={fastq_r1}\n"
-                f"R2={fastq_r2}\n\n"
+                f"R1={fastq_r1_cli}\n"
+                f"R2={fastq_r2_cli}\n\n"
             )
 
         align_block = (
             "# 2) Align reads and sort BAM\n"
-            f"bwa mem -t {threads} {ref_fa} $R1 $R2 | samtools sort -@ {threads} -o {sample_id}.sorted.bam\n"
+            f"bwa mem -t {threads} {ref_fa_cli} $R1 $R2 | samtools sort -@ {threads} -o {sample_id}.sorted.bam\n"
             f"samtools index {sample_id}.sorted.bam\n\n"
             "# 3) Mark duplicates\n"
             f"gatk MarkDuplicates -I {sample_id}.sorted.bam -O {sample_id}.dedup.bam -M {sample_id}.dup_metrics.txt\n"
@@ -625,7 +649,7 @@ def _render_automation_assistant(prefix: str = "auto") -> None:
             call_block = (
                 "# 4) Variant calling (DeepVariant)\n"
                 "docker run --rm -v \"$PWD\":/input -v \"$PWD\":/output google/deepvariant:latest "
-                f"/opt/deepvariant/bin/run_deepvariant --model_type=WGS --ref=/input/{ref_fa} "
+                f"/opt/deepvariant/bin/run_deepvariant --model_type=WGS --ref=/input/{ref_fa_cli} "
                 f"--reads=/input/{sample_id}.dedup.bam --output_vcf=/output/{sample_id}.raw.vcf.gz "
                 f"--num_shards={threads}\n"
                 f"bcftools index {sample_id}.raw.vcf.gz\n\n"
@@ -633,19 +657,19 @@ def _render_automation_assistant(prefix: str = "auto") -> None:
         elif caller_tool == "GATK HaplotypeCaller":
             call_block = (
                 "# 4) Variant calling (GATK HaplotypeCaller)\n"
-                f"gatk HaplotypeCaller -R {ref_fa} -I {sample_id}.dedup.bam -O {sample_id}.raw.vcf.gz\n"
+                f"gatk HaplotypeCaller -R {ref_fa_cli} -I {sample_id}.dedup.bam -O {sample_id}.raw.vcf.gz\n"
                 f"bcftools index {sample_id}.raw.vcf.gz\n\n"
             )
         elif caller_tool == "FreeBayes":
             call_block = (
                 "# 4) Variant calling (FreeBayes)\n"
-                f"freebayes -f {ref_fa} {sample_id}.dedup.bam | bgzip > {sample_id}.raw.vcf.gz\n"
+                f"freebayes -f {ref_fa_cli} {sample_id}.dedup.bam | bgzip > {sample_id}.raw.vcf.gz\n"
                 f"bcftools index {sample_id}.raw.vcf.gz\n\n"
             )
         else:
             call_block = (
                 "# 4) Variant calling (bcftools)\n"
-                f"bcftools mpileup -f {ref_fa} {sample_id}.dedup.bam | bcftools call -mv -Oz -o {sample_id}.raw.vcf.gz\n"
+                f"bcftools mpileup -f {ref_fa_cli} {sample_id}.dedup.bam | bcftools call -mv -Oz -o {sample_id}.raw.vcf.gz\n"
                 f"bcftools index {sample_id}.raw.vcf.gz\n\n"
             )
 
@@ -661,7 +685,7 @@ def _render_automation_assistant(prefix: str = "auto") -> None:
                 "# 6) Optional annotation (predictors + VEP)\n"
                 f"bcftools annotate -a dbNSFP4.4a_grch38.gz -c CHROM,POS,REF,ALT,CADD_PHRED,REVEL,AM_PATHOGENICITY "
                 f"{sample_id}.filtered.vcf.gz -Oz -o {sample_id}.dbnsfp.vcf.gz\n"
-                f"spliceai -I {sample_id}.dbnsfp.vcf.gz -O {sample_id}.predictors.vcf.gz -R {ref_fa} -A grch38\n"
+                f"spliceai -I {sample_id}.dbnsfp.vcf.gz -O {sample_id}.predictors.vcf.gz -R {ref_fa_cli} -A grch38\n"
                 f"vep -i {sample_id}.predictors.vcf.gz -o {sample_id}.vep.vcf --vcf --everything --offline --cache --assembly GRCh38\n"
             )
 
@@ -670,14 +694,15 @@ set -euo pipefail
 
 {qc_block}{trim_block}{align_block}{call_block}{filter_block}{annotation_block}
 """
-        st.code(fastq_pipeline, language="bash")
-        st.download_button(
-            "⬇️ Download FASTQ-to-VCF pipeline script",
-            fastq_pipeline.encode(),
-            f"{sample_id.lower()}_fastq_to_vcf.sh",
-            "text/x-shellscript",
-            key=f"{prefix}_download_fastq_script",
-        )
+        with st.expander("🧾 CLI (click to show FASTQ pipeline)", expanded=False):
+            st.code(fastq_pipeline, language="bash")
+            st.download_button(
+                "⬇️ Download FASTQ-to-VCF pipeline script",
+                fastq_pipeline.encode(),
+                f"{sample_id.lower()}_fastq_to_vcf.sh",
+                "text/x-shellscript",
+                key=f"{prefix}_download_fastq_script",
+            )
         st.markdown("**Tool availability check on this host**")
         _render_tool_status(
             [
