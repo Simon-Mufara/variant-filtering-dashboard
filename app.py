@@ -493,9 +493,25 @@ def _execute_fastq_pipeline_locally(
     caller_tool: str,
     do_annotation: bool,
     threads: int,
+    progress_cb=None,
 ) -> bytes:
     if not ref_upload or not r1_upload or not r2_upload:
         raise RuntimeError("Upload FASTA, FASTQ R1, and FASTQ R2 to run pipeline in-app.")
+
+    total_steps = 4
+    if qc_tool != "Skip QC":
+        total_steps += 1
+    if trimming_tool != "Skip trimming":
+        total_steps += 1
+    if do_annotation:
+        total_steps += 1
+    step_idx = 0
+
+    def _mark_step(label: str) -> None:
+        nonlocal step_idx
+        step_idx += 1
+        if progress_cb:
+            progress_cb(step_idx, total_steps, label)
 
     with tempfile.TemporaryDirectory(prefix="variant_pipeline_") as workdir:
         ref_name = os.path.basename(ref_upload.name)
@@ -515,10 +531,13 @@ def _execute_fastq_pipeline_locally(
         r2_curr = r2_name
 
         if qc_tool == "FastQC + MultiQC":
+            _mark_step("Running read quality control (FastQC + MultiQC)")
             _run_step(f"mkdir -p qc_raw && fastqc -t {threads} {r1_curr} {r2_curr} -o qc_raw && multiqc qc_raw -o qc_raw", workdir)
         elif qc_tool == "FastQC only":
+            _mark_step("Running read quality control (FastQC)")
             _run_step(f"mkdir -p qc_raw && fastqc -t {threads} {r1_curr} {r2_curr} -o qc_raw", workdir)
         elif qc_tool == "fastp QC report":
+            _mark_step("Running read quality control (fastp)")
             _run_step(
                 f"fastp -i {r1_curr} -I {r2_curr} -h {sample_id}.fastp.html -j {sample_id}.fastp.json "
                 f"-w {threads} -o {sample_id}.qc_R1.fastq.gz -O {sample_id}.qc_R2.fastq.gz",
@@ -528,12 +547,14 @@ def _execute_fastq_pipeline_locally(
             r2_curr = f"{sample_id}.qc_R2.fastq.gz"
 
         if trimming_tool == "Trim Galore":
+            _mark_step("Trimming reads (Trim Galore)")
             _run_step(f"mkdir -p trimmed && trim_galore --paired --cores {max(1, threads // 2)} {r1_curr} {r2_curr} -o trimmed", workdir)
             r1_curr = os.path.basename(r1_curr).replace(".fastq.gz", "_val_1.fq.gz")
             r2_curr = os.path.basename(r2_curr).replace(".fastq.gz", "_val_2.fq.gz")
             r1_curr = f"trimmed/{r1_curr}"
             r2_curr = f"trimmed/{r2_curr}"
         elif trimming_tool == "fastp":
+            _mark_step("Trimming reads (fastp)")
             _run_step(
                 f"fastp -i {r1_curr} -I {r2_curr} -w {threads} "
                 f"-o {sample_id}.trim_R1.fastq.gz -O {sample_id}.trim_R2.fastq.gz "
@@ -543,6 +564,7 @@ def _execute_fastq_pipeline_locally(
             r1_curr = f"{sample_id}.trim_R1.fastq.gz"
             r2_curr = f"{sample_id}.trim_R2.fastq.gz"
         elif trimming_tool == "Trimmomatic":
+            _mark_step("Trimming reads (Trimmomatic)")
             _run_step(
                 f"trimmomatic PE -threads {threads} {r1_curr} {r2_curr} "
                 f"{sample_id}.trim_R1.fastq.gz {sample_id}.trim_R1.unpaired.fastq.gz "
@@ -553,6 +575,7 @@ def _execute_fastq_pipeline_locally(
             r1_curr = f"{sample_id}.trim_R1.fastq.gz"
             r2_curr = f"{sample_id}.trim_R2.fastq.gz"
 
+        _mark_step("Aligning reads and marking duplicates")
         _run_step(
             f"bwa mem -t {threads} {ref_name} {r1_curr} {r2_curr} | "
             f"samtools sort -@ {threads} -o {sample_id}.sorted.bam && "
@@ -565,6 +588,7 @@ def _execute_fastq_pipeline_locally(
             workdir,
         )
 
+        _mark_step(f"Calling variants ({caller_tool})")
         if caller_tool == "DeepVariant (recommended)":
             _run_step(
                 "docker run --rm -v \"$PWD\":/input -v \"$PWD\":/output google/deepvariant:latest "
@@ -584,6 +608,7 @@ def _execute_fastq_pipeline_locally(
                 workdir,
             )
         _run_step(f"bcftools index {sample_id}.raw.vcf.gz", workdir)
+        _mark_step("Applying variant quality filters")
         _run_step(
             f"bcftools filter -e 'QUAL<30 || DP<10' {sample_id}.raw.vcf.gz -Oz -o {sample_id}.filtered.vcf.gz && "
             f"bcftools index {sample_id}.filtered.vcf.gz",
@@ -592,6 +617,7 @@ def _execute_fastq_pipeline_locally(
 
         final_vcf = f"{sample_id}.filtered.vcf.gz"
         if do_annotation:
+            _mark_step("Annotating variants (dbNSFP + SpliceAI + VEP)")
             _run_step(
                 f"bcftools annotate -a dbNSFP4.4a_grch38.gz -c CHROM,POS,REF,ALT,CADD_PHRED,REVEL,AM_PATHOGENICITY "
                 f"{sample_id}.filtered.vcf.gz -Oz -o {sample_id}.dbnsfp.vcf.gz",
@@ -877,6 +903,18 @@ set -euo pipefail
         if run_no_cli:
             st.info("In-app execution enabled: upload FASTA, FASTQ R1, and FASTQ R2, then click Run.")
             if st.button("▶️ Run FASTQ pipeline in app", key=f"{prefix}_run_pipeline_btn", type="primary"):
+                progress_bar = st.progress(0.0)
+                status_box = st.empty()
+                stage_log = st.empty()
+                timeline: list[str] = []
+
+                def _on_progress(step: int, total: int, label: str) -> None:
+                    pct = step / total if total else 0
+                    progress_bar.progress(min(1.0, pct))
+                    status_box.markdown(f"**Step {step}/{total}:** {label}")
+                    timeline.append(f"✅ {label}")
+                    stage_log.markdown("  \n".join(timeline))
+
                 with st.spinner("Running FASTQ pipeline in app (this may take a while)..."):
                     try:
                         out_bytes = _execute_fastq_pipeline_locally(
@@ -889,7 +927,10 @@ set -euo pipefail
                             caller_tool=caller_tool,
                             do_annotation=do_annotation,
                             threads=threads,
+                            progress_cb=_on_progress,
                         )
+                        progress_bar.progress(1.0)
+                        status_box.markdown("**Completed**")
                         st.success("Pipeline completed successfully.")
                         st.download_button(
                             "⬇️ Download result VCF",
