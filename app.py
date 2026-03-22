@@ -99,7 +99,7 @@ from utils.plots import (
     chromosome_plot, variant_type_plot, quality_distribution,
     depth_distribution, af_scatter, tstv_plot, positional_track, annotate_with_genes,
 )
-APP_BUILD = "2026.03.22-acmgx-top10"
+APP_BUILD = "2026.03.22-auth-guestfix"
 
 # Backward-compatible auth bindings (supports older deployed auth.py versions).
 require_auth = auth_mod.require_auth

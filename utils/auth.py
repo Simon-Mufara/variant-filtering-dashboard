@@ -179,6 +179,7 @@ def available_modes(role: str) -> list[str]:
 def require_auth() -> AuthContext:
     """Block the app until a valid user session exists."""
     store = get_user_store()
+    bootstrap_password = _secret("APP_ADMIN_PASSWORD") or _secret("APP_PASSWORD")
 
     if st.session_state.get("authenticated") and not _is_session_expired():
         return get_auth_context()
@@ -186,6 +187,21 @@ def require_auth() -> AuthContext:
     if _is_session_expired():
         sign_out()
         st.warning("Your session expired. Please sign in again.")
+
+    # If no bootstrap password is configured, don't hard-block users at login.
+    # This keeps the app accessible for clinician workflows on fresh deployments.
+    if not bootstrap_password:
+        st.session_state["authenticated"] = True
+        st.session_state["auth_user"] = {
+            "id": 0,
+            "username": "guest",
+            "role": "individual",
+            "full_name": "Guest User",
+            "organization_name": "Independent",
+            "team_name": "N/A",
+        }
+        st.session_state["auth_logged_at"] = datetime.now(timezone.utc)
+        return get_auth_context()
 
     st.markdown(
         """
@@ -223,8 +239,7 @@ def require_auth() -> AuthContext:
 
         st.error("Invalid username or password.")
 
-    if not _secret("APP_ADMIN_PASSWORD") and not _secret("APP_PASSWORD"):
-        st.info("Set APP_ADMIN_PASSWORD in Streamlit secrets to bootstrap the first admin account.")
+    st.caption("Tip: set APP_ADMIN_PASSWORD in Streamlit secrets to enable managed sign-in.")
     st.stop()
 
 
