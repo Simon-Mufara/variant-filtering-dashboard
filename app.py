@@ -8,7 +8,66 @@ import pandas as pd
 import plotly.express as px
 
 from config import DEFAULT_MIN_QUAL, DEFAULT_MIN_DP
-from utils import auth as auth_mod
+try:
+    from utils import auth as auth_mod
+except ModuleNotFoundError as auth_import_exc:
+    if "utils.user_management" not in str(auth_import_exc):
+        raise
+
+    class _LegacyAuthModule:
+        """Fallback auth shim for deployments missing utils.user_management."""
+
+        @staticmethod
+        def require_auth():
+            app_password = ""
+            if hasattr(st, "secrets"):
+                app_password = str(
+                    st.secrets.get("APP_PASSWORD", st.secrets.get("APP_ADMIN_PASSWORD", ""))
+                ).strip()
+
+            if not app_password:
+                st.warning(
+                    "Auth backend module is unavailable and no APP_PASSWORD/APP_ADMIN_PASSWORD "
+                    "was found in Streamlit secrets."
+                )
+                st.stop()
+
+            if not st.session_state.get("legacy_authenticated"):
+                with st.form("legacy_login_form"):
+                    st.subheader("Access Required")
+                    entered = st.text_input("Password", type="password")
+                    submit = st.form_submit_button("Sign In", type="primary")
+                if submit and entered == app_password:
+                    st.session_state["legacy_authenticated"] = True
+                    st.rerun()
+                if submit:
+                    st.error("Invalid password.")
+                st.stop()
+
+            return types.SimpleNamespace(
+                user_id=0,
+                username="legacy-user",
+                role="admin",
+                display_name="Legacy User",
+                organization_name="Independent",
+                team_name="N/A",
+            )
+
+        @staticmethod
+        def render_user_status(_ctx):
+            st.caption("Auth mode: legacy fallback")
+
+        @staticmethod
+        def available_modes(_role):
+            return [
+                "🔬 Single VCF",
+                "⚖️ Multi-VCF Compare",
+                "👨‍👩‍👧 Trio Analysis",
+                "🧫 Somatic (Tumor/Normal)",
+                "📦 Batch Pipeline",
+            ]
+
+    auth_mod = _LegacyAuthModule()
 # load_vcf imported via format_parser internally
 from utils.validator import validate_vcf
 from utils.format_parser import load_any, supported_extensions
