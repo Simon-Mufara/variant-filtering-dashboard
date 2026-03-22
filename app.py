@@ -26,10 +26,7 @@ except ModuleNotFoundError as auth_import_exc:
                 ).strip()
 
             if not app_password:
-                st.warning(
-                    "Auth backend module is unavailable and no APP_PASSWORD/APP_ADMIN_PASSWORD "
-                    "was found in Streamlit secrets. Continuing in guest mode."
-                )
+                st.session_state["legacy_guest_mode"] = True
                 return types.SimpleNamespace(
                     user_id=0,
                     username="guest",
@@ -62,7 +59,10 @@ except ModuleNotFoundError as auth_import_exc:
 
         @staticmethod
         def render_user_status(_ctx):
-            st.caption("Auth mode: legacy fallback")
+            if st.session_state.get("legacy_guest_mode"):
+                st.caption("Auth mode: guest fallback")
+            else:
+                st.caption("Auth mode: legacy fallback")
 
         @staticmethod
         def available_modes(_role):
@@ -468,6 +468,239 @@ def _render_tool_status(tool_names: list[str]) -> None:
     st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
 
 
+def _render_automation_assistant(prefix: str = "auto") -> None:
+    st.markdown('<div class="section-header">🧰 Automation Assistant</div>', unsafe_allow_html=True)
+    automation_tabs = st.tabs(["🧪 Predictor/VEP Automation", "🧬 FASTQ → VCF Workflow"])
+
+    with automation_tabs[0]:
+        st.markdown(
+            "Generate ready-to-run command templates for annotation. "
+            "These commands can be copied to your Linux terminal."
+        )
+        genome_build_cmd = st.selectbox(
+            "Reference build for command templates",
+            ["grch38", "grch37"],
+            key=f"{prefix}_genome_build",
+        )
+        input_vcf_name = st.text_input(
+            "Input VCF filename",
+            value="input.vcf.gz",
+            key=f"{prefix}_input_vcf",
+        )
+        output_prefix = st.text_input(
+            "Output prefix",
+            value="annotated_output",
+            key=f"{prefix}_output_prefix",
+        )
+
+        predictor_cmd = (
+            "bcftools annotate "
+            f"-a dbNSFP4.4a_{genome_build_cmd}.gz "
+            "-c CHROM,POS,REF,ALT,CADD_PHRED,REVEL,AM_PATHOGENICITY "
+            f"{input_vcf_name} -Oz -o {output_prefix}.dbnsfp.vcf.gz"
+        )
+        spliceai_cmd = (
+            "spliceai "
+            f"-I {output_prefix}.dbnsfp.vcf.gz "
+            f"-O {output_prefix}.predictors.vcf.gz "
+            f"-R genome_{genome_build_cmd}.fa -A {genome_build_cmd}"
+        )
+        vep_cmd = (
+            "vep "
+            f"-i {output_prefix}.predictors.vcf.gz "
+            f"-o {output_prefix}.vep.vcf "
+            "--vcf --everything --offline --cache "
+            f"--assembly {'GRCh38' if genome_build_cmd == 'grch38' else 'GRCh37'}"
+        )
+
+        st.code(predictor_cmd, language="bash")
+        st.code(spliceai_cmd, language="bash")
+        st.code(vep_cmd, language="bash")
+        st.download_button(
+            "⬇️ Download annotation command script",
+            (
+                "#!/usr/bin/env bash\nset -euo pipefail\n\n"
+                f"{predictor_cmd}\n{spliceai_cmd}\n{vep_cmd}\n"
+            ).encode(),
+            "run_annotation_pipeline.sh",
+            "text/x-shellscript",
+            key=f"{prefix}_download_annotation_script",
+        )
+        st.markdown("**Tool availability check on this host**")
+        _render_tool_status(["bcftools", "spliceai", "vep"])
+
+    with automation_tabs[1]:
+        st.markdown(
+            "If users only have FASTQ files, this workflow generates a best-practice command plan "
+            "from raw reads to a VCF suitable for this app."
+        )
+        sample_id = st.text_input("Sample ID", value="SAMPLE001", key=f"{prefix}_sample_id")
+        ref_fa = st.text_input("Reference FASTA path", value="genome.fa", key=f"{prefix}_ref_fa")
+        fastq_r1 = st.text_input("FASTQ R1 path", value="sample_R1.fastq.gz", key=f"{prefix}_r1")
+        fastq_r2 = st.text_input("FASTQ R2 path", value="sample_R2.fastq.gz", key=f"{prefix}_r2")
+        qc_tool = st.selectbox(
+            "QC tool",
+            ["FastQC + MultiQC", "FastQC only", "fastp QC report", "Skip QC"],
+            key=f"{prefix}_qc_tool",
+        )
+        trimming_tool = st.selectbox(
+            "Read trimming tool",
+            ["Trim Galore", "fastp", "Trimmomatic", "Skip trimming"],
+            key=f"{prefix}_trim_tool",
+        )
+        caller_tool = st.selectbox(
+            "Variant caller",
+            ["DeepVariant (recommended)", "bcftools mpileup/call", "GATK HaplotypeCaller", "FreeBayes"],
+            key=f"{prefix}_caller_tool",
+        )
+        do_annotation = st.checkbox(
+            "Include predictor + VEP annotation steps",
+            value=True,
+            key=f"{prefix}_with_annotation",
+        )
+        threads = st.slider("Threads", 2, 32, 8, key=f"{prefix}_threads")
+
+        qc_block = ""
+        if qc_tool == "FastQC + MultiQC":
+            qc_block = (
+                f"# 0) Raw read QC\n"
+                f"fastqc -t {threads} {fastq_r1} {fastq_r2} -o qc_raw/\n"
+                "multiqc qc_raw -o qc_raw/\n\n"
+            )
+        elif qc_tool == "FastQC only":
+            qc_block = (
+                f"# 0) Raw read QC\n"
+                f"fastqc -t {threads} {fastq_r1} {fastq_r2} -o qc_raw/\n\n"
+            )
+        elif qc_tool == "fastp QC report":
+            qc_block = (
+                f"# 0) Raw read QC (fastp)\n"
+                f"fastp -i {fastq_r1} -I {fastq_r2} -h {sample_id}.fastp.html -j {sample_id}.fastp.json "
+                f"-w {threads} -o {sample_id}.qc_R1.fastq.gz -O {sample_id}.qc_R2.fastq.gz\n\n"
+            )
+
+        if trimming_tool == "Trim Galore":
+            trim_block = (
+                "# 1) Adapter/quality trimming (Trim Galore)\n"
+                f"trim_galore --paired --cores {max(1, threads // 2)} {fastq_r1} {fastq_r2} -o trimmed/\n"
+                f"R1=trimmed/{os.path.basename(fastq_r1).replace('.fastq.gz', '_val_1.fq.gz')}\n"
+                f"R2=trimmed/{os.path.basename(fastq_r2).replace('.fastq.gz', '_val_2.fq.gz')}\n\n"
+            )
+        elif trimming_tool == "fastp":
+            trim_block = (
+                "# 1) Adapter/quality trimming (fastp)\n"
+                f"fastp -i {fastq_r1} -I {fastq_r2} -w {threads} "
+                f"-o {sample_id}.trim_R1.fastq.gz -O {sample_id}.trim_R2.fastq.gz "
+                f"-h {sample_id}.trim.fastp.html -j {sample_id}.trim.fastp.json\n"
+                f"R1={sample_id}.trim_R1.fastq.gz\n"
+                f"R2={sample_id}.trim_R2.fastq.gz\n\n"
+            )
+        elif trimming_tool == "Trimmomatic":
+            trim_block = (
+                "# 1) Adapter/quality trimming (Trimmomatic)\n"
+                f"trimmomatic PE -threads {threads} {fastq_r1} {fastq_r2} "
+                f"{sample_id}.trim_R1.fastq.gz {sample_id}.trim_R1.unpaired.fastq.gz "
+                f"{sample_id}.trim_R2.fastq.gz {sample_id}.trim_R2.unpaired.fastq.gz "
+                "ILLUMINACLIP:adapters.fa:2:30:10 LEADING:3 TRAILING:3 SLIDINGWINDOW:4:20 MINLEN:36\n"
+                f"R1={sample_id}.trim_R1.fastq.gz\n"
+                f"R2={sample_id}.trim_R2.fastq.gz\n\n"
+            )
+        else:
+            trim_block = (
+                "# 1) No trimming selected\n"
+                f"R1={fastq_r1}\n"
+                f"R2={fastq_r2}\n\n"
+            )
+
+        align_block = (
+            "# 2) Align reads and sort BAM\n"
+            f"bwa mem -t {threads} {ref_fa} $R1 $R2 | samtools sort -@ {threads} -o {sample_id}.sorted.bam\n"
+            f"samtools index {sample_id}.sorted.bam\n\n"
+            "# 3) Mark duplicates\n"
+            f"gatk MarkDuplicates -I {sample_id}.sorted.bam -O {sample_id}.dedup.bam -M {sample_id}.dup_metrics.txt\n"
+            f"samtools index {sample_id}.dedup.bam\n\n"
+        )
+
+        if caller_tool == "DeepVariant (recommended)":
+            call_block = (
+                "# 4) Variant calling (DeepVariant)\n"
+                "docker run --rm -v \"$PWD\":/input -v \"$PWD\":/output google/deepvariant:latest "
+                f"/opt/deepvariant/bin/run_deepvariant --model_type=WGS --ref=/input/{ref_fa} "
+                f"--reads=/input/{sample_id}.dedup.bam --output_vcf=/output/{sample_id}.raw.vcf.gz "
+                f"--num_shards={threads}\n"
+                f"bcftools index {sample_id}.raw.vcf.gz\n\n"
+            )
+        elif caller_tool == "GATK HaplotypeCaller":
+            call_block = (
+                "# 4) Variant calling (GATK HaplotypeCaller)\n"
+                f"gatk HaplotypeCaller -R {ref_fa} -I {sample_id}.dedup.bam -O {sample_id}.raw.vcf.gz\n"
+                f"bcftools index {sample_id}.raw.vcf.gz\n\n"
+            )
+        elif caller_tool == "FreeBayes":
+            call_block = (
+                "# 4) Variant calling (FreeBayes)\n"
+                f"freebayes -f {ref_fa} {sample_id}.dedup.bam | bgzip > {sample_id}.raw.vcf.gz\n"
+                f"bcftools index {sample_id}.raw.vcf.gz\n\n"
+            )
+        else:
+            call_block = (
+                "# 4) Variant calling (bcftools)\n"
+                f"bcftools mpileup -f {ref_fa} {sample_id}.dedup.bam | bcftools call -mv -Oz -o {sample_id}.raw.vcf.gz\n"
+                f"bcftools index {sample_id}.raw.vcf.gz\n\n"
+            )
+
+        filter_block = (
+            "# 5) Basic filtering\n"
+            f"bcftools filter -e 'QUAL<30 || DP<10' {sample_id}.raw.vcf.gz -Oz -o {sample_id}.filtered.vcf.gz\n"
+            f"bcftools index {sample_id}.filtered.vcf.gz\n\n"
+        )
+
+        annotation_block = ""
+        if do_annotation:
+            annotation_block = (
+                "# 6) Optional annotation (predictors + VEP)\n"
+                f"bcftools annotate -a dbNSFP4.4a_grch38.gz -c CHROM,POS,REF,ALT,CADD_PHRED,REVEL,AM_PATHOGENICITY "
+                f"{sample_id}.filtered.vcf.gz -Oz -o {sample_id}.dbnsfp.vcf.gz\n"
+                f"spliceai -I {sample_id}.dbnsfp.vcf.gz -O {sample_id}.predictors.vcf.gz -R {ref_fa} -A grch38\n"
+                f"vep -i {sample_id}.predictors.vcf.gz -o {sample_id}.vep.vcf --vcf --everything --offline --cache --assembly GRCh38\n"
+            )
+
+        fastq_pipeline = f"""#!/usr/bin/env bash
+set -euo pipefail
+
+{qc_block}{trim_block}{align_block}{call_block}{filter_block}{annotation_block}
+"""
+        st.code(fastq_pipeline, language="bash")
+        st.download_button(
+            "⬇️ Download FASTQ-to-VCF pipeline script",
+            fastq_pipeline.encode(),
+            f"{sample_id.lower()}_fastq_to_vcf.sh",
+            "text/x-shellscript",
+            key=f"{prefix}_download_fastq_script",
+        )
+        st.markdown("**Tool availability check on this host**")
+        _render_tool_status(
+            [
+                "fastqc",
+                "multiqc",
+                "trim_galore",
+                "fastp",
+                "trimmomatic",
+                "bwa",
+                "samtools",
+                "gatk",
+                "bcftools",
+                "freebayes",
+                "docker",
+                "spliceai",
+                "vep",
+            ]
+        )
+        st.caption(
+            "Tip: run these commands on a compute server/HPC. Then upload the final VCF here."
+        )
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # SIDEBAR — branding + mode selector
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -714,7 +947,7 @@ if mode == "🔬 Single VCF":
     tab_names = [
         "📈 Overview", "📉 Distributions", "🧭 Genome Browser", "👥 Multi-Sample",
         "🎯 Prioritize", "🧬 Gene Panel", "🔎 VEP", "🧪 SnpEff", "🩺 ClinVar",
-        "🧬 ACMG", "📊 Statistics", "🧠 Predictors", "🗂️ Data Table", "📝 Report",
+        "🧬 ACMG", "📊 Statistics", "🧠 Predictors", "🗂️ Data Table", "📝 Report", "🧰 Automation",
     ]
     tabs = st.tabs(tab_names)
 
@@ -1160,6 +1393,10 @@ if mode == "🔬 Single VCF":
                 if pdf_bytes:
                     st.download_button("⬇️ Download PDF Report", pdf_bytes,
                                        report_prefix.replace(".vcf","") + "_report.pdf", "application/pdf")
+
+    # ── 14: Automation ────────────────────────────────────────────────────────
+    with tabs[14]:
+        _render_automation_assistant(prefix="single")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1643,233 +1880,7 @@ elif mode == "📦 Batch Pipeline":
     st.title("📦 Batch Pipeline")
     st.info("Upload multiple VCF files. All will be filtered with the same settings "
             "and merged into a single annotated CSV download.")
-
-    st.markdown('<div class="section-header">🧰 Automation Assistant</div>', unsafe_allow_html=True)
-    automation_tabs = st.tabs(["🧪 Predictor/VEP Automation", "🧬 FASTQ → VCF Workflow"])
-
-    with automation_tabs[0]:
-        st.markdown(
-            "Generate ready-to-run command templates for annotation. "
-            "These commands can be copied to your Linux terminal."
-        )
-        genome_build_cmd = st.selectbox(
-            "Reference build for command templates",
-            ["grch38", "grch37"],
-            key="automation_genome_build",
-        )
-        input_vcf_name = st.text_input(
-            "Input VCF filename",
-            value="input.vcf.gz",
-            key="automation_input_vcf",
-        )
-        output_prefix = st.text_input(
-            "Output prefix",
-            value="annotated_output",
-            key="automation_output_prefix",
-        )
-
-        predictor_cmd = (
-            "bcftools annotate "
-            f"-a dbNSFP4.4a_{genome_build_cmd}.gz "
-            "-c CHROM,POS,REF,ALT,CADD_PHRED,REVEL,AM_PATHOGENICITY "
-            f"{input_vcf_name} -Oz -o {output_prefix}.dbnsfp.vcf.gz"
-        )
-        spliceai_cmd = (
-            "spliceai "
-            f"-I {output_prefix}.dbnsfp.vcf.gz "
-            f"-O {output_prefix}.predictors.vcf.gz "
-            f"-R genome_{genome_build_cmd}.fa -A {genome_build_cmd}"
-        )
-        vep_cmd = (
-            "vep "
-            f"-i {output_prefix}.predictors.vcf.gz "
-            f"-o {output_prefix}.vep.vcf "
-            "--vcf --everything --offline --cache "
-            f"--assembly {'GRCh38' if genome_build_cmd == 'grch38' else 'GRCh37'}"
-        )
-
-        st.code(predictor_cmd, language="bash")
-        st.code(spliceai_cmd, language="bash")
-        st.code(vep_cmd, language="bash")
-
-        st.download_button(
-            "⬇️ Download annotation command script",
-            (
-                "#!/usr/bin/env bash\nset -euo pipefail\n\n"
-                f"{predictor_cmd}\n{spliceai_cmd}\n{vep_cmd}\n"
-            ).encode(),
-            "run_annotation_pipeline.sh",
-            "text/x-shellscript",
-        )
-
-        st.markdown("**Tool availability check on this host**")
-        _render_tool_status(["bcftools", "spliceai", "vep"])
-
-    with automation_tabs[1]:
-        st.markdown(
-            "If users only have FASTQ files, this workflow generates a best-practice command plan "
-            "from raw reads to a VCF suitable for this app."
-        )
-        sample_id = st.text_input("Sample ID", value="SAMPLE001", key="fastq_sample_id")
-        ref_fa = st.text_input("Reference FASTA path", value="genome.fa", key="fastq_ref_fa")
-        fastq_r1 = st.text_input("FASTQ R1 path", value="sample_R1.fastq.gz", key="fastq_r1")
-        fastq_r2 = st.text_input("FASTQ R2 path", value="sample_R2.fastq.gz", key="fastq_r2")
-        qc_tool = st.selectbox(
-            "QC tool",
-            ["FastQC + MultiQC", "FastQC only", "fastp QC report", "Skip QC"],
-            key="fastq_qc_tool",
-        )
-        trimming_tool = st.selectbox(
-            "Read trimming tool",
-            ["Trim Galore", "fastp", "Trimmomatic", "Skip trimming"],
-            key="fastq_trim_tool",
-        )
-        caller_tool = st.selectbox(
-            "Variant caller",
-            ["DeepVariant (recommended)", "bcftools mpileup/call", "GATK HaplotypeCaller", "FreeBayes"],
-            key="fastq_caller_tool",
-        )
-        do_annotation = st.checkbox("Include predictor + VEP annotation steps", value=True, key="fastq_with_annotation")
-        threads = st.slider("Threads", 2, 32, 8, key="fastq_threads")
-
-        qc_block = ""
-        if qc_tool == "FastQC + MultiQC":
-            qc_block = (
-                f"# 0) Raw read QC\n"
-                f"fastqc -t {threads} {fastq_r1} {fastq_r2} -o qc_raw/\n"
-                "multiqc qc_raw -o qc_raw/\n\n"
-            )
-        elif qc_tool == "FastQC only":
-            qc_block = (
-                f"# 0) Raw read QC\n"
-                f"fastqc -t {threads} {fastq_r1} {fastq_r2} -o qc_raw/\n\n"
-            )
-        elif qc_tool == "fastp QC report":
-            qc_block = (
-                f"# 0) Raw read QC (fastp)\n"
-                f"fastp -i {fastq_r1} -I {fastq_r2} -h {sample_id}.fastp.html -j {sample_id}.fastp.json "
-                f"-w {threads} -o {sample_id}.qc_R1.fastq.gz -O {sample_id}.qc_R2.fastq.gz\n\n"
-            )
-
-        if trimming_tool == "Trim Galore":
-            trim_block = (
-                "# 1) Adapter/quality trimming (Trim Galore)\n"
-                f"trim_galore --paired --cores {max(1, threads // 2)} {fastq_r1} {fastq_r2} -o trimmed/\n"
-                f"R1=trimmed/{os.path.basename(fastq_r1).replace('.fastq.gz', '_val_1.fq.gz')}\n"
-                f"R2=trimmed/{os.path.basename(fastq_r2).replace('.fastq.gz', '_val_2.fq.gz')}\n\n"
-            )
-        elif trimming_tool == "fastp":
-            trim_block = (
-                "# 1) Adapter/quality trimming (fastp)\n"
-                f"fastp -i {fastq_r1} -I {fastq_r2} -w {threads} "
-                f"-o {sample_id}.trim_R1.fastq.gz -O {sample_id}.trim_R2.fastq.gz "
-                f"-h {sample_id}.trim.fastp.html -j {sample_id}.trim.fastp.json\n"
-                f"R1={sample_id}.trim_R1.fastq.gz\n"
-                f"R2={sample_id}.trim_R2.fastq.gz\n\n"
-            )
-        elif trimming_tool == "Trimmomatic":
-            trim_block = (
-                "# 1) Adapter/quality trimming (Trimmomatic)\n"
-                f"trimmomatic PE -threads {threads} {fastq_r1} {fastq_r2} "
-                f"{sample_id}.trim_R1.fastq.gz {sample_id}.trim_R1.unpaired.fastq.gz "
-                f"{sample_id}.trim_R2.fastq.gz {sample_id}.trim_R2.unpaired.fastq.gz "
-                "ILLUMINACLIP:adapters.fa:2:30:10 LEADING:3 TRAILING:3 SLIDINGWINDOW:4:20 MINLEN:36\n"
-                f"R1={sample_id}.trim_R1.fastq.gz\n"
-                f"R2={sample_id}.trim_R2.fastq.gz\n\n"
-            )
-        else:
-            trim_block = (
-                "# 1) No trimming selected\n"
-                f"R1={fastq_r1}\n"
-                f"R2={fastq_r2}\n\n"
-            )
-
-        align_block = (
-            "# 2) Align reads and sort BAM\n"
-            f"bwa mem -t {threads} {ref_fa} $R1 $R2 | samtools sort -@ {threads} -o {sample_id}.sorted.bam\n"
-            f"samtools index {sample_id}.sorted.bam\n\n"
-            "# 3) Mark duplicates\n"
-            f"gatk MarkDuplicates -I {sample_id}.sorted.bam -O {sample_id}.dedup.bam -M {sample_id}.dup_metrics.txt\n"
-            f"samtools index {sample_id}.dedup.bam\n\n"
-        )
-
-        if caller_tool == "DeepVariant (recommended)":
-            call_block = (
-                "# 4) Variant calling (DeepVariant)\n"
-                "docker run --rm -v \"$PWD\":/input -v \"$PWD\":/output google/deepvariant:latest "
-                f"/opt/deepvariant/bin/run_deepvariant --model_type=WGS --ref=/input/{ref_fa} "
-                f"--reads=/input/{sample_id}.dedup.bam --output_vcf=/output/{sample_id}.raw.vcf.gz "
-                f"--num_shards={threads}\n"
-                f"bcftools index {sample_id}.raw.vcf.gz\n\n"
-            )
-        elif caller_tool == "GATK HaplotypeCaller":
-            call_block = (
-                "# 4) Variant calling (GATK HaplotypeCaller)\n"
-                f"gatk HaplotypeCaller -R {ref_fa} -I {sample_id}.dedup.bam -O {sample_id}.raw.vcf.gz\n"
-                f"bcftools index {sample_id}.raw.vcf.gz\n\n"
-            )
-        elif caller_tool == "FreeBayes":
-            call_block = (
-                "# 4) Variant calling (FreeBayes)\n"
-                f"freebayes -f {ref_fa} {sample_id}.dedup.bam | bgzip > {sample_id}.raw.vcf.gz\n"
-                f"bcftools index {sample_id}.raw.vcf.gz\n\n"
-            )
-        else:
-            call_block = (
-                "# 4) Variant calling (bcftools)\n"
-                f"bcftools mpileup -f {ref_fa} {sample_id}.dedup.bam | bcftools call -mv -Oz -o {sample_id}.raw.vcf.gz\n"
-                f"bcftools index {sample_id}.raw.vcf.gz\n\n"
-            )
-
-        filter_block = (
-            "# 5) Basic filtering\n"
-            f"bcftools filter -e 'QUAL<30 || DP<10' {sample_id}.raw.vcf.gz -Oz -o {sample_id}.filtered.vcf.gz\n"
-            f"bcftools index {sample_id}.filtered.vcf.gz\n\n"
-        )
-
-        annotation_block = ""
-        if do_annotation:
-            annotation_block = (
-                "# 6) Optional annotation (predictors + VEP)\n"
-                f"bcftools annotate -a dbNSFP4.4a_grch38.gz -c CHROM,POS,REF,ALT,CADD_PHRED,REVEL,AM_PATHOGENICITY "
-                f"{sample_id}.filtered.vcf.gz -Oz -o {sample_id}.dbnsfp.vcf.gz\n"
-                f"spliceai -I {sample_id}.dbnsfp.vcf.gz -O {sample_id}.predictors.vcf.gz -R {ref_fa} -A grch38\n"
-                f"vep -i {sample_id}.predictors.vcf.gz -o {sample_id}.vep.vcf --vcf --everything --offline --cache --assembly GRCh38\n"
-            )
-
-        fastq_pipeline = f"""#!/usr/bin/env bash
-set -euo pipefail
-
-{qc_block}{trim_block}{align_block}{call_block}{filter_block}{annotation_block}
-"""
-        st.code(fastq_pipeline, language="bash")
-        st.download_button(
-            "⬇️ Download FASTQ-to-VCF pipeline script",
-            fastq_pipeline.encode(),
-            f"{sample_id.lower()}_fastq_to_vcf.sh",
-            "text/x-shellscript",
-        )
-        st.markdown("**Tool availability check on this host**")
-        _render_tool_status(
-            [
-                "fastqc",
-                "multiqc",
-                "trim_galore",
-                "fastp",
-                "trimmomatic",
-                "bwa",
-                "samtools",
-                "gatk",
-                "bcftools",
-                "freebayes",
-                "docker",
-                "spliceai",
-                "vep",
-            ]
-        )
-        st.caption(
-            "Tip: run these commands on a compute server/HPC. Then upload the final VCF here."
-        )
+    _render_automation_assistant(prefix="batch")
 
     batch_files = st.file_uploader("Upload VCF files (up to 20)",
                                    type=_UPLOAD_TYPES,
