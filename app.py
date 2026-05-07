@@ -340,14 +340,32 @@ def _inject_theme_css(theme_name: str) -> None:
           .app-brand {{
             border: 1px solid {palette["sidebar_border"]};
             border-radius: 12px;
-            padding: .7rem .8rem;
+            padding: .7rem .75rem;
             background: {palette["accent_soft"]};
             margin-bottom: .5rem;
             box-shadow: {palette["card_shadow"]};
           }}
-          .app-brand-icon {{ font-size: 1.8rem; margin-bottom: .2rem; }}
-          .app-brand-title {{ font-size: 1rem; font-weight: 700; color: {palette["sidebar_heading"]}; }}
-          .app-brand-subtitle {{ font-size: .74rem; color: {palette["sidebar_muted"]}; }}
+          .app-brand-head {{
+            display: flex;
+            align-items: center;
+            gap: .5rem;
+          }}
+          .app-brand-icon {{
+            font-size: 1.35rem;
+            width: 1.9rem;
+            height: 1.9rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 10px;
+            background: {palette["metric_bg"]};
+            border: 1px solid {palette["metric_border"]};
+          }}
+          .app-brand-title-wrap {{
+            min-width: 0;
+          }}
+          .app-brand-title {{ font-size: .97rem; font-weight: 700; color: {palette["sidebar_heading"]}; line-height: 1.2; }}
+          .app-brand-subtitle {{ font-size: .72rem; color: {palette["sidebar_muted"]}; line-height: 1.3; margin-top: .06rem; }}
           .sidebar-note {{
             font-size: .75rem;
             color: {palette["sidebar_muted"]};
@@ -375,6 +393,12 @@ def _inject_theme_css(theme_name: str) -> None:
             margin-top: .35rem;
             background: {palette["metric_bg"]};
             align-items: flex-start;
+            transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease;
+          }}
+          .workflow-item:hover {{
+            transform: translateY(-1px);
+            border-color: {palette["accent_ring"]};
+            box-shadow: 0 2px 10px rgba(15, 23, 42, 0.1);
           }}
           .workflow-item-active {{
             box-shadow: 0 0 0 1px {palette["accent_ring"]} inset;
@@ -428,12 +452,21 @@ def _inject_theme_css(theme_name: str) -> None:
           [data-testid="metric-container"] [data-testid="stMetricValue"] {{ color: {palette["section_text"]}; font-weight: 700; }}
 
           .stTabs [data-baseweb="tab-list"] {{
-            gap: 5px; background: {palette["tabs_bg"]}; border-radius: 10px; padding: 5px;
+            gap: 6px; background: {palette["tabs_bg"]}; border-radius: 10px; padding: 6px;
+            flex-wrap: wrap;
           }}
           .stTabs [data-baseweb="tab"] {{
-            border-radius: 8px; padding: .4rem .85rem; font-size: .82rem; font-weight: 600;
+            border-radius: 8px; padding: .42rem .82rem; font-size: .8rem; font-weight: 600;
             color: {palette["tabs_text"]};
             border: 1px solid transparent;
+            min-height: 2rem;
+          }}
+          .stTabs [data-baseweb="tab"]:hover {{
+            border-color: {palette["accent_ring"]};
+          }}
+          .stTabs [data-baseweb="tab"] p {{
+            margin: 0;
+            line-height: 1.15;
           }}
           .stTabs [aria-selected="true"] {{
             background: {palette["tabs_active_bg"]} !important;
@@ -473,14 +506,20 @@ def _inject_theme_css(theme_name: str) -> None:
             margin: .18rem 0;
           }}
           .mode-chip {{
-            display: inline-block;
+            display: inline-flex;
+            align-items: center;
             border: 1px solid {palette["metric_border"]};
             border-radius: 999px;
-            padding: .18rem .55rem;
+            padding: .2rem .55rem;
             font-size: .72rem;
-            margin: .12rem .25rem .12rem 0;
             background: {palette["accent_soft"]};
             color: {palette["section_text"]};
+          }}
+          .mode-chip-wrap {{
+            display: flex;
+            flex-wrap: wrap;
+            gap: .28rem;
+            margin: .12rem 0 .35rem 0;
           }}
           .exec-strip {{
             border: 1px solid {palette["metric_border"]};
