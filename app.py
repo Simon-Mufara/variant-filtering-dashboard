@@ -1792,15 +1792,13 @@ _UPLOAD_TYPES = supported_extensions()
 
 if mode == "Single VCF":
 
-    st.markdown(
-        """
-        <div class="analysis-start-panel">
-            <h1>Variant Analysis Suite</h1>
-            <p>Use the sidebar to upload a VCF/MAF/TSV/CSV file, load a URL, or open a built-in example. Results will appear here after the data is loaded.</p>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    landing = st.empty()
+    with landing.container():
+        st.title("Variant Analysis Suite")
+        st.info(
+            "Use the sidebar to upload a VCF/MAF/TSV/CSV file, load a URL, "
+            "or open a built-in example. Results will appear here after data is loaded."
+        )
 
     with st.sidebar:
         st.markdown('#### Tool Controls')
@@ -2001,6 +1999,8 @@ if mode == "Single VCF":
                 min_value=0.0, value=0.0,
                 help="Leave 0 if not yet known"
             )
+
+    landing.empty()
 
     # ── Apply filters ─────────────────────────────────────────────────────────
     df = apply_filters(
