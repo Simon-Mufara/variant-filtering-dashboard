@@ -92,7 +92,7 @@ available_modes = getattr(
 def _missing_auth_helper(name: str):
     def _raise(*_args, **_kwargs):
         raise RuntimeError(
-            f"Auth helper '{name}" is unavailable in this deployment. "
+            f"Auth helper '{name}' is unavailable in this deployment. "
             "Please pull latest code for utils/auth.py."
         )
 
@@ -811,9 +811,9 @@ def _generate_dataset_interpretation(df: pd.DataFrame, mode: str) -> str:
     if mode == "guided":
         return (
             f"- **Total variants:** {total:,} (this is the full number of candidates after filters)\n"
-            f"- **ACMG class distribution:** {acmg_counts if acmg_counts else 'Not available"} "
+            f"- **ACMG class distribution:** {acmg_counts if acmg_counts else 'Not available'} "
             "(helps estimate likely clinical significance mix)\n"
-            f"- **Key genes of interest:** {', '.join(top_genes[:5]) if top_genes else 'Not available"} "
+            f"- **Key genes of interest:** {', '.join(top_genes[:5]) if top_genes else 'Not available'} "
             "(frequently hit genes may indicate biologically relevant pathways)\n"
             f"- **Notable high-impact variants:** {high_impact_count:,} "
             "(higher-impact variants are often prioritized for review)\n\n"
