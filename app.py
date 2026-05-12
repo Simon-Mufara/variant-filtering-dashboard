@@ -658,6 +658,12 @@ def _pick_first(row: pd.Series, cols: list[str], default: str = "Unknown") -> st
     return default
 
 
+def _priority_assessment(row: pd.Series, mode: str = "guided") -> tuple:
+    from utils.prioritize import score_variant
+    result = score_variant(row)
+    return result["priority_tier"], result["score_breakdown"]
+
+
 def _to_float(val):
     try:
         return float(val)
@@ -1809,7 +1815,8 @@ if mode == "Single VCF":
                 # Will connect to UFS SFTP/cluster API when deployed on iLifu HPC
                 if os.path.exists(ufs_path):
                     try:
-                        df_raw = load_vcf(ufs_path)
+                        with open(ufs_path, "rb") as _f:
+                            df_raw = load_any(_f, filename=os.path.basename(ufs_path))
                         st.success(f"✓ Loaded UFS-NGS sample: {ufs_sample}")
                     except Exception as e:
                         st.error(f"❌ Failed to load {ufs_path}: {e}")
@@ -2979,7 +2986,7 @@ elif mode == "Somatic (Tumor/Normal)":
 # MODE 5 — ADMIN CONSOLE
 # ═══════════════════════════════════════════════════════════════════════════════
 
-elif mode == '<span class="material-symbols-outlined">handyman</span> Admin Console':
+elif mode == "Admin Console":
     st.title('<span class="material-symbols-outlined">handyman</span> Admin Console')
     st.caption("Platform administration for organisations, teams, and individual users.")
 

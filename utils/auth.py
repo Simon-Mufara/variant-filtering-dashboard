@@ -135,30 +135,30 @@ def can_access_mode(role: str, mode_name: str) -> bool:
     role = _normalize_role(role)
     allowed = {
         "individual": {
-            "🔬 Single VCF",
-            "📦 Batch Pipeline",
+            "Single VCF",
+            "Batch Pipeline",
         },
         "team_member": {
-            "🔬 Single VCF",
-            "⚖️ Multi-VCF Compare",
-            "👨‍👩‍👧 Trio Analysis",
-            "🧫 Somatic (Tumor/Normal)",
-            "📦 Batch Pipeline",
+            "Single VCF",
+            "Multi-VCF Compare",
+            "Trio Analysis",
+            "Somatic (Tumor/Normal)",
+            "Batch Pipeline",
         },
         "org_admin": {
-            "🔬 Single VCF",
-            "⚖️ Multi-VCF Compare",
-            "👨‍👩‍👧 Trio Analysis",
-            "🧫 Somatic (Tumor/Normal)",
-            "📦 Batch Pipeline",
+            "Single VCF",
+            "Multi-VCF Compare",
+            "Trio Analysis",
+            "Somatic (Tumor/Normal)",
+            "Batch Pipeline",
         },
         "admin": {
-            "🔬 Single VCF",
-            "⚖️ Multi-VCF Compare",
-            "👨‍👩‍👧 Trio Analysis",
-            "🧫 Somatic (Tumor/Normal)",
-            "📦 Batch Pipeline",
-            "🛠️ Admin Console",
+            "Single VCF",
+            "Multi-VCF Compare",
+            "Trio Analysis",
+            "Somatic (Tumor/Normal)",
+            "Batch Pipeline",
+            "Admin Console",
         },
     }
     return mode_name in allowed.get(role, set())
@@ -166,12 +166,12 @@ def can_access_mode(role: str, mode_name: str) -> bool:
 
 def available_modes(role: str) -> list[str]:
     all_modes = [
-        "🔬 Single VCF",
-        "⚖️ Multi-VCF Compare",
-        "👨‍👩‍👧 Trio Analysis",
-        "🧫 Somatic (Tumor/Normal)",
-        "📦 Batch Pipeline",
-        "🛠️ Admin Console",
+        "Single VCF",
+        "Multi-VCF Compare",
+        "Trio Analysis",
+        "Somatic (Tumor/Normal)",
+        "Batch Pipeline",
+        "Admin Console",
     ]
     return [m for m in all_modes if can_access_mode(role, m)]
 
