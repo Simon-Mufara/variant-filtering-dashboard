@@ -1,10 +1,12 @@
 """Variant Analysis Suite — main Streamlit application."""
 import os
 import io
+import re
 import types
 import shutil
 import tempfile
 import subprocess
+from typing import Optional
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -174,7 +176,25 @@ _MODE_DESCRIPTIONS = {
 }
 
 
+def _canonical_mode(mode_name: str) -> str:
+    """Normalize old icon/HTML-decorated mode labels to stable route names."""
+    text = re.sub(r"<[^>]+>", "", str(mode_name or ""))
+    text = re.sub(r"\s+", " ", text).strip()
+    text = text.replace("🔬 ", "").replace("⚖️ ", "").replace("👨‍👩‍👧 ", "")
+    text = text.replace("🧫 ", "").replace("📦 ", "").strip()
+    aliases = {
+        "Single VCF": "Single VCF",
+        "Multi-VCF Compare": "Multi-VCF Compare",
+        "Trio Analysis": "Trio Analysis",
+        "Somatic (Tumor/Normal)": "Somatic (Tumor/Normal)",
+        "Batch Pipeline": "Batch Pipeline",
+        "Admin Console": "Admin Console",
+    }
+    return aliases.get(text, text)
+
+
 def _mode_workflow(mode_name: str) -> list[tuple[str, str, str]]:
+    mode_name = _canonical_mode(mode_name)
     workflows = {
         "Single VCF": [
             ("📥", "Load Data", "Upload one variant file or use a built-in example."),
@@ -226,6 +246,7 @@ def _render_workflow_navigator(mode_name: str, active_step: int = 1) -> None:
 
 
 def _render_user_guide(mode_name: str) -> None:
+    mode_name = _canonical_mode(mode_name)
     st.markdown(
         """
         <div class="quick-guide">
@@ -240,15 +261,15 @@ def _render_user_guide(mode_name: str) -> None:
         unsafe_allow_html=True,
     )
 
-    if mode_name == '<span class="material-symbols-outlined">biotech</span> Single VCF':
+    if mode_name == "Single VCF":
         st.caption("Best for deep variant interpretation of one case/sample.")
-    elif mode_name == '<span class="material-symbols-outlined">balance</span> Multi-VCF Compare':
+    elif mode_name == "Multi-VCF Compare":
         st.caption("Best for overlap/concordance analysis across multiple files.")
-    elif mode_name == '<span class="material-symbols-outlined">family_restroom</span> Trio Analysis':
+    elif mode_name == "Trio Analysis":
         st.caption("Best for inherited/de novo variant reasoning in family studies.")
-    elif mode_name == '<span class="material-symbols-outlined">science</span> Somatic (Tumor/Normal)':
+    elif mode_name == "Somatic (Tumor/Normal)":
         st.caption("Best for tumor-only candidate discovery via matched normal subtraction.")
-    elif mode_name == '<span class="material-symbols-outlined">inventory_2</span> Batch Pipeline':
+    elif mode_name == "Batch Pipeline":
         st.caption("Best for standardized processing across many files/projects.")
 
     st.markdown("**Workflow modes at a glance**")
@@ -1653,13 +1674,22 @@ with st.sidebar:
     st.divider()
 
     allowed_modes = available_modes(getattr(auth_ctx, "role", "individual"))
+    allowed_modes = [_canonical_mode(m) for m in allowed_modes]
     if not allowed_modes:
         allowed_modes = ["Single VCF"]
 
+    mode_icons = {
+        "Single VCF": "file-earmark-text",
+        "Multi-VCF Compare": "files",
+        "Trio Analysis": "people",
+        "Somatic (Tumor/Normal)": "lungs",
+        "Batch Pipeline": "collection",
+        "Admin Console": "gear",
+    }
     mode = option_menu(
         menu_title="Analysis Mode",
         options=allowed_modes,
-        icons=["file-earmark-text", "files", "people", "lungs", "collection"][:len(allowed_modes)],
+        icons=[mode_icons.get(m, "circle") for m in allowed_modes],
         menu_icon="dna",
         default_index=0,
         styles={
@@ -1669,6 +1699,7 @@ with st.sidebar:
             "nav-link-selected": {"background-color": "#1a3a5c", "color": "white"},
         }
     )
+    mode = _canonical_mode(mode)
     st.markdown(
         f'<div class="mode-badge">{_MODE_DESCRIPTIONS.get(mode, 'Analysis workflow selected.')}</div>',
         unsafe_allow_html=True,
@@ -3255,3 +3286,9 @@ elif mode == "Batch Pipeline":
                 )
         else:
             st.error("No VCFs were processed successfully.")
+
+else:
+    st.error(
+        f"Unsupported analysis mode '{mode}'. Please select Single VCF, Multi-VCF Compare, "
+        "Trio Analysis, Somatic (Tumor/Normal), Batch Pipeline, or Admin Console."
+    )
