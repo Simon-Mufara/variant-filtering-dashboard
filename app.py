@@ -1792,6 +1792,8 @@ _UPLOAD_TYPES = supported_extensions()
 
 if mode == "Single VCF":
 
+    main_start = st.empty()
+
     with st.sidebar:
         st.markdown('#### Tool Controls')
         st.caption("Organized by data, filtering, and annotation.")
@@ -1892,7 +1894,7 @@ if mode == "Single VCF":
                 st.warning("⚠️ Please provide both cluster path and sample identifier")
 
         if df_raw is None or df_raw.empty or "chrom" not in df_raw.columns:
-            st.markdown(
+            main_start.markdown(
                 """
                 <div class="analysis-start-panel">
                     <h1>Variant Analysis Suite</h1>
