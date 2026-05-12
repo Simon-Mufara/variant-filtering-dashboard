@@ -3,7 +3,10 @@
     "allow": [
       "Bash(python -m py_compile \"c:/Users/kayka/projects/variant-filtering-dashboard/app.py\")",
       "Bash(git add *)",
-      "Bash(git commit -m ' *)"
+      "Bash(git commit -m ' *)",
+      "Bash(python -c ' *)",
+      "Bash(python -m py_compile utils/auth.py utils/acmg.py utils/compare.py utils/filters.py utils/format_parser.py utils/gene_panel.py utils/gnomad.py utils/logger.py utils/pdf_report.py utils/plots.py utils/prioritize.py utils/report.py utils/scores.py utils/snpeff.py utils/stats.py utils/trio.py utils/user_management.py utils/validator.py utils/vcf_parser.py utils/vep.py config.py)",
+      "Bash(python -m py_compile \"c:/Users/kayka/projects/variant-filtering-dashboard/utils/auth.py\")"
     ]
   }
 }
