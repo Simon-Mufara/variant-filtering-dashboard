@@ -83,8 +83,8 @@ available_modes = getattr(
     lambda _role: [
         '<span class="material-symbols-outlined">biotech</span> Single VCF',
         '<span class="material-symbols-outlined">balance</span> Multi-VCF Compare',
-        "'<span class="material-symbols-outlined">family_restroom</span> Trio Analysis'",
-        "'<span class="material-symbols-outlined">science</span> Somatic (Tumor/Normal)'",
+        '<span class="material-symbols-outlined">family_restroom</span> Trio Analysis',
+        '<span class="material-symbols-outlined">science</span> Somatic (Tumor/Normal)',
     ],
 )
 
