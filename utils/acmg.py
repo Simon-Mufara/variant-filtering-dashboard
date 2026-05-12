@@ -32,20 +32,28 @@ LOF_TERMS = {
 PATHOGENIC_CLNSIG = {"Pathogenic", "Likely_pathogenic"}
 BENIGN_CLNSIG = {"Benign", "Likely_benign"}
 
+# African contextualisation thresholds
+AFRICAN_PM2_THRESHOLD = 0.001
+AFRICAN_BA1_THRESHOLD = 0.05
+AFRICAN_DISCREPANCY_RATIO = 10  # ratio of African to overall AF
+AFRICAN_MIN_AF = 0.005  # minimum African AF to flag
+
 
 def classify_variant(row: pd.Series) -> dict:
     """Apply ACMG-lite rules to a single variant row.
 
     Expected columns (all optional; missing = no evidence):
-        variant_type, ref, alt, gnomad_af, annotation (SnpEff),
+        variant_type, ref, alt, gnomad_af, gnomad_af_afr, annotation (SnpEff),
         ClinVar Significance, info_raw
     """
     evidence_path: list[str] = []
     evidence_benign: list[str] = []
+    african_context = None
 
     ann = str(row.get("annotation", "")).lower()
     vtype = str(row.get("variant_type", ""))
     gnomad_af: Optional[float] = _safe_float(row.get("gnomad_af"))
+    gnomad_af_afr: Optional[float] = _safe_float(row.get("gnomad_af_afr"))
     clnsig = str(row.get("ClinVar Significance", ""))
 
     # ── PVS1: predicted loss-of-function ──────────────────────────────────────
@@ -58,11 +66,12 @@ def classify_variant(row: pd.Series) -> dict:
     if any(sig.lower() in clnsig.lower() for sig in PATHOGENIC_CLNSIG):
         evidence_path.append("PS1")
 
-    # ── PM2: ultra-rare / absent in gnomAD ───────────────────────────────────
-    if gnomad_af is not None and gnomad_af < AF_PM2:
+    # ── PM2: ultra-rare / absent in gnomAD ────────────────────────────────────
+    pm2_result = classify_pm2_african(gnomad_af, gnomad_af_afr)
+    if pm2_result["standard_call"] == "PM2_Supporting":
         evidence_path.append("PM2")
-    elif gnomad_af is None:
-        evidence_path.append("PM2")   # absent = same evidence weight
+    if pm2_result["flag"] == "AFRICAN_CONTEXT_MISMATCH":
+        african_context = pm2_result
 
     # ── PM4: in-frame INDEL ───────────────────────────────────────────────────
     if vtype == "INDEL":
@@ -73,11 +82,15 @@ def classify_variant(row: pd.Series) -> dict:
             evidence_path.append("PM4")
 
     # ── BA1 / BS1: common allele ──────────────────────────────────────────────
+    ba1_result = classify_ba1_african(gnomad_af, gnomad_af_afr)
     if gnomad_af is not None:
-        if gnomad_af >= AF_BA1:
+        if ba1_result["standard_call"] == "BA1_Strong":
             evidence_benign.append("BA1")
         elif gnomad_af >= AF_BS1:
             evidence_benign.append("BS1")
+
+    if ba1_result["flag"] == "AFRICAN_CONTEXT_MISMATCH":
+        african_context = ba1_result
 
     if any(sig.lower() in clnsig.lower() for sig in BENIGN_CLNSIG):
         evidence_benign.append("BS2")
@@ -85,11 +98,17 @@ def classify_variant(row: pd.Series) -> dict:
     # ── Classification ────────────────────────────────────────────────────────
     classification = _classify(evidence_path, evidence_benign)
 
-    return {
+    result = {
         "acmg_class": classification,
         "acmg_path_evidence": ", ".join(evidence_path) or "—",
         "acmg_benign_evidence": ", ".join(evidence_benign) or "—",
     }
+
+    if african_context:
+        result["african_context_flag"] = african_context["flag"]
+        result["african_context_recommendation"] = african_context["recommendation"]
+
+    return result
 
 
 def _classify(path: list[str], benign: list[str]) -> str:
@@ -115,6 +134,92 @@ def _safe_float(val) -> Optional[float]:
         return float(val)
     except (TypeError, ValueError):
         return None
+
+
+def classify_pm2_african(overall_gnomad_af: Optional[float],
+                        african_gnomad_af: Optional[float],
+                        threshold: float = AFRICAN_PM2_THRESHOLD) -> dict:
+    """African-contextualised PM2 criterion.
+
+    Standard PM2: absent/rare in population databases (AF < 0.001)
+    African PM2: checks gnomAD African subpopulation specifically.
+    Flags when African AF significantly exceeds overall AF (population-specific variation).
+    """
+    result = {
+        "criterion": "PM2",
+        "standard_call": None,
+        "african_call": None,
+        "flag": None,
+        "recommendation": None
+    }
+
+    # Standard PM2
+    if overall_gnomad_af is None or overall_gnomad_af < threshold:
+        result["standard_call"] = "PM2_Supporting"
+    else:
+        result["standard_call"] = "Not_PM2"
+
+    # African contextualisation
+    if african_gnomad_af is not None and overall_gnomad_af is not None:
+        discrepancy_ratio = african_gnomad_af / (overall_gnomad_af + 1e-9)
+
+        if discrepancy_ratio > AFRICAN_DISCREPANCY_RATIO and african_gnomad_af > AFRICAN_MIN_AF:
+            result["african_call"] = "Not_PM2"
+            result["flag"] = "AFRICAN_CONTEXT_MISMATCH"
+            result["recommendation"] = (
+                f"⚠️ African context detected: Overall gnomAD AF={overall_gnomad_af:.4f} suggests PM2, "
+                f"but gnomAD African AF={african_gnomad_af:.4f} is substantially higher ({discrepancy_ratio:.1f}x). "
+                f"This variant may represent benign African population-specific variation. "
+                f"Recommend downgrading PM2 evidence for African ancestry patients."
+            )
+        else:
+            result["african_call"] = result["standard_call"]
+    elif african_gnomad_af is None:
+        result["african_call"] = result["standard_call"]
+
+    return result
+
+
+def classify_ba1_african(overall_gnomad_af: Optional[float],
+                        african_gnomad_af: Optional[float],
+                        threshold: float = AFRICAN_BA1_THRESHOLD) -> dict:
+    """African-contextualised BA1 criterion.
+
+    Standard BA1: common allele (AF >= 5%, stand-alone benign)
+    African BA1: checks if African AF contradicts benign call.
+    Flags when African AF is rare but overall AF is high (may be enriched in other populations).
+    """
+    result = {
+        "criterion": "BA1",
+        "standard_call": None,
+        "african_call": None,
+        "flag": None,
+        "recommendation": None
+    }
+
+    # Standard BA1
+    if overall_gnomad_af is not None and overall_gnomad_af >= threshold:
+        result["standard_call"] = "BA1_Strong"
+    else:
+        result["standard_call"] = "Not_BA1"
+
+    # African contextualisation
+    if african_gnomad_af is not None and overall_gnomad_af is not None:
+        if overall_gnomad_af >= threshold and african_gnomad_af < (threshold * 0.2):
+            result["african_call"] = "Not_BA1"
+            result["flag"] = "AFRICAN_CONTEXT_MISMATCH"
+            result["recommendation"] = (
+                f"⚠️ African context detected: Overall gnomAD AF={overall_gnomad_af:.4f} suggests BA1, "
+                f"but gnomAD African AF={african_gnomad_af:.4f} is much lower. "
+                f"This variant may be enriched in other populations but rare in African cohorts. "
+                f"Exercise caution calling BA1 for African ancestry patients without further evidence."
+            )
+        else:
+            result["african_call"] = result["standard_call"]
+    elif african_gnomad_af is None:
+        result["african_call"] = result["standard_call"]
+
+    return result
 
 
 def classify_dataframe(df: pd.DataFrame) -> pd.DataFrame:
