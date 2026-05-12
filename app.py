@@ -821,8 +821,8 @@ def _generate_dataset_interpretation(df: pd.DataFrame, mode: str) -> str:
             "Suggested next steps: phenotype correlation, segregation analysis, orthogonal validation, and curated review."
         )
     return (
-        f"Total={total:,}; ACMG={acmg_counts if acmg_counts else 'NA"}; "
-        f"Top genes={', '.join(top_genes[:5]) if top_genes else 'NA"}; High-impact={high_impact_count:,}. "
+        f"Total={total:,}; ACMG={acmg_counts if acmg_counts else 'NA'}; "
+        f"Top genes={', '.join(top_genes[:5]) if top_genes else 'NA'}; High-impact={high_impact_count:,}. "
         "Next: phenotype concordance + clinical-grade curation."
     )
 
@@ -1038,8 +1038,8 @@ def _generate_local_ai_interpretation(row: pd.Series, mode: str, teaching_mode: 
             "It then applies a deterministic evidence-weighting profile to produce a consistent classification suggestion."
         )
         supporting = (
-            f"- **Primary drivers:** {'; '.join(drivers) if drivers else 'No strong positive drivers."}\n"
-            f"- **Conflicts / uncertainty:** {'; '.join(conflicts) if conflicts else 'No major conflicts detected."}\n"
+            f"- **Primary drivers:** {'; '.join(drivers) if drivers else 'No strong positive drivers.'}\n"
+            f"- **Conflicts / uncertainty:** {'; '.join(conflicts) if conflicts else 'No major conflicts detected.'}\n"
             f"- **Current ACMG-lite class in dataset:** `{acmg_class}`\n"
             f"- **Proposed local AI class:** `{local_class}`"
         )
@@ -1056,8 +1056,8 @@ def _generate_local_ai_interpretation(row: pd.Series, mode: str, teaching_mode: 
             f"given AF={allele_frequency}, impact={impact}, ClinVar={clinvar}, COSMIC={cosmic}."
         )
         supporting = (
-            f"- Drivers: {'; '.join(drivers) if drivers else 'none"}\n"
-            f"- Conflicts: {'; '.join(conflicts) if conflicts else 'none"}\n"
+            f"- Drivers: {'; '.join(drivers) if drivers else 'none'}\n"
+            f"- Conflicts: {'; '.join(conflicts) if conflicts else 'none'}\n"
             f"- ACMG-lite baseline: `{acmg_class}`"
         )
         biological = "Prioritize context-specific mechanism and phenotype concordance; treat discordant evidence as uncertainty."
@@ -1068,9 +1068,9 @@ def _generate_local_ai_interpretation(row: pd.Series, mode: str, teaching_mode: 
         teaching_block = (
             "6. **Teaching Mode — How to reason**\n\n"
             "- **Q1:** Which evidence type is strongest here: rarity, function, or database?  \n"
-            f"  **A:** Key drivers are: {('; '.join(drivers[:2]) if drivers else 'limited strong drivers")}.\n"
+            f"  **A:** Key drivers are: {('; '.join(drivers[:2]) if drivers else 'limited strong drivers')}.\n"
             "- **Q2:** Is there conflicting evidence that lowers certainty?  \n"
-            f"  **A:** {('; '.join(conflicts[:2]) if conflicts else 'No major conflicts detected.")}\n\n"
+            f"  **A:** {('; '.join(conflicts[:2]) if conflicts else 'No major conflicts detected.')}\n\n"
             "Interpretation principle: stronger convergence across independent evidence increases confidence."
         )
 
@@ -1261,7 +1261,7 @@ def _execute_fastq_pipeline_locally(
         _run_step(f"bcftools index {sample_id}.raw.vcf.gz", workdir)
         _mark_step("Applying variant quality filters")
         _run_step(
-            f"bcftools filter -e 'QUAL<30 || DP<10" {sample_id}.raw.vcf.gz -Oz -o {sample_id}.filtered.vcf.gz && "
+            f"bcftools filter -e 'QUAL<30 || DP<10' {sample_id}.raw.vcf.gz -Oz -o {sample_id}.filtered.vcf.gz && "
             f"bcftools index {sample_id}.filtered.vcf.gz",
             workdir,
         )
@@ -1334,7 +1334,7 @@ def _render_automation_assistant(prefix: str = "auto") -> None:
             f"-i {output_prefix}.predictors.vcf.gz "
             f"-o {output_prefix}.vep.vcf "
             "--vcf --everything --offline --cache "
-            f"--assembly {'GRCh38' if genome_build_cmd == 'grch38' else 'GRCh37"}"
+            f"--assembly {'GRCh38' if genome_build_cmd == 'grch38' else 'GRCh37'}"
         )
 
         with st.expander("🧾 CLI (click to show annotation commands)", expanded=False):
@@ -1437,8 +1437,8 @@ def _render_automation_assistant(prefix: str = "auto") -> None:
             trim_block = (
                 "# 1) Adapter/quality trimming (Trim Galore)\n"
                 f"trim_galore --paired --cores {max(1, threads // 2)} {fastq_r1_cli} {fastq_r2_cli} -o trimmed/\n"
-                f"R1=trimmed/{os.path.basename(fastq_r1_cli).replace('.fastq.gz', '_val_1.fq.gz")}\n"
-                f"R2=trimmed/{os.path.basename(fastq_r2_cli).replace('.fastq.gz', '_val_2.fq.gz")}\n\n"
+                f"R1=trimmed/{os.path.basename(fastq_r1_cli).replace('.fastq.gz', '_val_1.fq.gz')}\n"
+                f"R2=trimmed/{os.path.basename(fastq_r2_cli).replace('.fastq.gz', '_val_2.fq.gz')}\n\n"
             )
         elif trimming_tool == "fastp":
             trim_block = (
@@ -1505,7 +1505,7 @@ def _render_automation_assistant(prefix: str = "auto") -> None:
 
         filter_block = (
             "# 5) Basic filtering\n"
-            f"bcftools filter -e 'QUAL<30 || DP<10" {sample_id}.raw.vcf.gz -Oz -o {sample_id}.filtered.vcf.gz\n"
+            f"bcftools filter -e 'QUAL<30 || DP<10' {sample_id}.raw.vcf.gz -Oz -o {sample_id}.filtered.vcf.gz\n"
             f"bcftools index {sample_id}.filtered.vcf.gz\n\n"
         )
 
@@ -1556,7 +1556,7 @@ set -euo pipefail
         )
         if run_no_cli:
             st.info("In-app execution enabled: upload FASTA, FASTQ R1, and FASTQ R2, then click Run.")
-            if st.button('<span class="material-symbols-outlined">play_arrow</span> Run FASTQ pipeline in app', key=f"{prefix}_run_pipeline_btn", type="primary'):
+            if st.button('<span class="material-symbols-outlined">play_arrow</span> Run FASTQ pipeline in app', key=f"{prefix}_run_pipeline_btn", type="primary"):
                 progress_bar = st.progress(0.0)
                 status_box = st.empty()
                 stage_log = st.empty()
@@ -1566,7 +1566,7 @@ set -euo pipefail
                     pct = step / total if total else 0
                     progress_bar.progress(min(1.0, pct))
                     status_box.markdown(f"**Step {step}/{total}:** {label}")
-                    timeline.append(f'<span class="material-symbols-outlined'>check_circle</span> {label}')
+                    timeline.append(f'<span class="material-symbols-outlined">check_circle</span> {label}')
                     stage_log.markdown("  \n".join(timeline))
 
                 with st.spinner("Running FASTQ pipeline in app (this may take a while)..."):
@@ -1723,7 +1723,7 @@ _UPLOAD_TYPES = supported_extensions()
 if mode == "Single VCF":
 
     with st.sidebar:
-        st.markdown("#### <span class="material-symbols-outlined">tune</span> Tool Controls")
+        st.markdown('#### <span class="material-symbols-outlined">tune</span> Tool Controls')
         st.caption("Organized by data, filtering, and annotation.")
         with st.expander(f"{_UI_ICONS['data']} Data Input", expanded=True):
             data_source = st.radio(
@@ -2000,7 +2000,7 @@ if mode == "Single VCF":
     fname       = vcf_file.name if vcf_file else "example.vcf"
     if st.session_state.get("ui_density") == "Comfortable":
         st.info(
-            '<span class="material-symbols-outlined">compass_calibration</span> Navigate left-to-right through tabs: start in **Overview**, "
+            '<span class="material-symbols-outlined">compass_calibration</span> Navigate left-to-right through tabs: start in **Overview**, '
             "inspect **Statistics**, then export from **Data Table** or **Report**."
         )
     st.markdown(
@@ -2234,10 +2234,10 @@ if mode == "Single VCF":
             with c1:
                 for _, row in tier_counts.iterrows():
                     css = "tier-high" if "HIGH" in row["Tier"] else ("tier-medium" if "MEDIUM" in row["Tier"] else "tier-low")
-                    st.markdown(f'<div class="{css}">{row["Tier"]}: {row["Count']} variants</div>', unsafe_allow_html=True)
+                    st.markdown(f'<div class="{css}">{row["Tier"]}: {row["Count"]} variants</div>', unsafe_allow_html=True)
             with c2:
                 fig = px.bar(tier_counts, x="Tier", y="Count", color="Tier",
-                             color_discrete_map={'<span class="material-symbols-outlined">circle</span> HIGH":"#dc2626',"🟠 MEDIUM":"#ea580c',"🟢 LOW":"#16a34a"},
+                             color_discrete_map={'<span class="material-symbols-outlined">circle</span> HIGH': "#dc2626", "🟠 MEDIUM": "#ea580c", "🟢 LOW": "#16a34a"},
                              title="Priority Tier Distribution")
                 st.plotly_chart(fig, width="stretch", key="priority_tier_dist")
 
@@ -2261,7 +2261,7 @@ if mode == "Single VCF":
                 gene_list_str = "  ·  ".join(sorted(pgenes))
                 st.markdown(f"<small>{gene_list_str}</small>", unsafe_allow_html=True)
                 if apply_panel and panel_choice == pname:
-                    st.success(f'<span class="material-symbols-outlined'>check_circle</span> Active — filtering to {len(df)} variants')
+                    st.success(f'<span class="material-symbols-outlined">check_circle</span> Active — filtering to {len(df)} variants')
 
         if apply_panel and not df.empty:
             st.divider()
@@ -2293,7 +2293,7 @@ if mode == "Single VCF":
             # Check if all VEP results are empty (API may have failed)
             non_empty = vep_df[vep_cols].astype(bool).any(axis=1).sum()
             if non_empty == 0:
-                st.warning('<span class="material-symbols-outlined">warning</span> VEP returned no annotations. This can happen if:\n"
+                st.warning('<span class="material-symbols-outlined">warning</span> VEP returned no annotations. This can happen if:\n'
                            "- Chromosome names use 'chr' prefix but Ensembl expects plain numbers\n"
                            "- The Ensembl API is temporarily unavailable\n"
                            "- Variants are on unrecognised contigs (e.g. alt chromosomes)\n\n"
@@ -2377,7 +2377,7 @@ if mode == "Single VCF":
             pathogenic = clin_df[clin_df["ClinVar Significance"].str.contains("Pathogenic", case=False, na=False)]
             if not pathogenic.empty:
                 with c2:
-                    st.markdown(f"**<span class="material-symbols-outlined">warning</span> {len(pathogenic)} Pathogenic / Likely Pathogenic variants**")
+                    st.markdown(f'**<span class="material-symbols-outlined">warning</span> {len(pathogenic)} Pathogenic / Likely Pathogenic variants**')
                     st.dataframe(pathogenic, width="stretch")
 
     # ── 9: ACMG ───────────────────────────────────────────────────────────────
@@ -2399,7 +2399,7 @@ if mode == "Single VCF":
                                    color="Classification", color_discrete_map=COLOR_MAP,
                                    title="ACMG Classification Counts"),
                             width="stretch", key="acmg_class_bar")
-            st.warning('<span class="material-symbols-outlined">warning</span> ACMG-lite is a triage tool only. Not for clinical decision-making. "
+            st.warning('<span class="material-symbols-outlined">warning</span> ACMG-lite is a triage tool only. Not for clinical decision-making. '
                        "Confirm with [VarSome](https://varsome.com) or [InterVar](http://www.intervar.org/).")
             acmg_disp = df[["chrom","position","ref","alt","variant_type",
                              "acmg_class","acmg_path_evidence","acmg_benign_evidence"]].copy()
@@ -2409,7 +2409,7 @@ if mode == "Single VCF":
                                "acmg_classifications.csv", "text/csv")
 
             st.divider()
-            st.markdown("### <span class="material-symbols-outlined">psychology</span> ACMG Interpretation Assistant")
+            st.markdown('### <span class="material-symbols-outlined">psychology</span> ACMG Interpretation Assistant')
             interp_mode = st.radio(
                 "Interpretation mode",
                 ["guided", "expert"],
@@ -2430,9 +2430,9 @@ if mode == "Single VCF":
                 help="Adds guiding questions and explicit reasoning steps for learners.",
             )
             interp_options = [
-                f"{idx} | {_pick_first(r, ['vep_symbol', 'gene_name', 'gene', 'Hugo_Symbol'], 'Unknown")} | "
-                f"{_pick_first(r, ['chrom'], '.')}:{_pick_first(r, ['position', 'pos'], '.")} "
-                f"{_pick_first(r, ['ref'], '.')}>{_pick_first(r, ['alt'], '.")}"
+                f"{idx} | {_pick_first(r, ['vep_symbol', 'gene_name', 'gene', 'Hugo_Symbol'], 'Unknown')} | "
+                f"{_pick_first(r, ['chrom'], '.')}:{_pick_first(r, ['position', 'pos'], '.')} "
+                f"{_pick_first(r, ['ref'], '.')}>{_pick_first(r, ['alt'], '.')}"
                 for idx, r in df.reset_index(drop=True).head(500).iterrows()
             ]
             selected = st.selectbox(
@@ -2462,7 +2462,7 @@ if mode == "Single VCF":
             st.markdown(f"**Priority Level:** {priority_level}")
             st.markdown(f"**Justification:** {priority_reason}")
 
-            st.markdown("### <span class="material-symbols-outlined">bar_chart</span> Dataset-Level Interpretation")
+            st.markdown('### <span class="material-symbols-outlined">bar_chart</span> Dataset-Level Interpretation')
             st.markdown(_generate_dataset_interpretation(df_reset, mode=interp_mode))
             st.download_button(
                 '<span class="material-symbols-outlined">download</span> Download interpretation',
@@ -2482,15 +2482,15 @@ if mode == "Single VCF":
             else:
                 top_df = df_reset.head(10).reset_index(drop=False)
 
-            if st.button('<span class="material-symbols-outlined">psychology</span> Generate interpretations for Top 10', key="acmg_batch_generate_top10'):
+            if st.button('<span class="material-symbols-outlined">psychology</span> Generate interpretations for Top 10', key="acmg_batch_generate_top10"):
                 outputs = []
                 for _, r in top_df.iterrows():
                     ridx = int(r.get("index", 0))
                     hdr = (
                         f"## Variant #{ridx} — "
-                        f"{_pick_first(r, ['vep_symbol', 'gene_name', 'gene', 'Hugo_Symbol'], 'Unknown")} "
-                        f"{_pick_first(r, ['chrom'], '.')}:{_pick_first(r, ['position', 'pos'], '.")} "
-                        f"{_pick_first(r, ['ref'], '.')}>{_pick_first(r, ['alt'], '.")}"
+                        f"{_pick_first(r, ['vep_symbol', 'gene_name', 'gene', 'Hugo_Symbol'], 'Unknown')} "
+                        f"{_pick_first(r, ['chrom'], '.')}:{_pick_first(r, ['position', 'pos'], '.')} "
+                        f"{_pick_first(r, ['ref'], '.')}>{_pick_first(r, ['alt'], '.')}"
                     )
                     if engine_mode == "Local AI Assist (no API key)":
                         body = _generate_local_ai_interpretation(
@@ -2635,10 +2635,10 @@ if mode == "Single VCF":
                      "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO"]
         for _, row in display_df.iterrows():
             vcf_lines.append(
-                f"{row.get('chrom','.')}\t{row.get('position','.")}\t.\t"
-                f"{row.get('ref','.')}\t{row.get('alt','.")}\t"
-                f"{row.get('quality','.')}\t{row.get('filter','PASS")}\t"
-                f"DP={row.get('depth",0)}"
+                f"{row.get('chrom','.')}\t{row.get('position','.')}\t.\t"
+                f"{row.get('ref','.')}\t{row.get('alt','.')}\t"
+                f"{row.get('quality','.')}\t{row.get('filter','PASS')}\t"
+                f"DP={row.get('depth', 0)}"
             )
         c2.download_button('<span class="material-symbols-outlined">download</span> Download VCF', "\n".join(vcf_lines).encode(),
                            "filtered_variants.vcf", "text/plain")
@@ -2693,7 +2693,7 @@ if mode == "Single VCF":
 elif mode == "Multi-VCF Compare":
 
     with st.sidebar:
-        st.markdown("#### <span class="material-symbols-outlined">tune</span> Tool Controls")
+        st.markdown('#### <span class="material-symbols-outlined">tune</span> Tool Controls')
         st.caption("Configure cohort upload and comparison scope.")
         with st.expander(f"{_UI_ICONS['data']} Upload VCF Files", expanded=True):
             n_vcfs = st.slider("Number of VCFs to compare", 2, 10, 2)
@@ -2725,7 +2725,7 @@ elif mode == "Multi-VCF Compare":
         st.stop()
 
     # Pairwise comparison matrix
-    st.subheader(f'<span class="material-symbols-outlined'>bar_chart</span> Pairwise Comparison — {len(dfs)} VCFs')
+    st.subheader(f'<span class="material-symbols-outlined">bar_chart</span> Pairwise Comparison — {len(dfs)} VCFs')
     n = len(dfs)
 
     # Summary row
@@ -2828,7 +2828,7 @@ elif mode == "Multi-VCF Compare":
 elif mode == "Trio Analysis":
 
     with st.sidebar:
-        st.markdown("#### <span class="material-symbols-outlined">tune</span> Tool Controls")
+        st.markdown('#### <span class="material-symbols-outlined">tune</span> Tool Controls')
         st.caption("Set trio inputs before inheritance analysis.")
         with st.expander(f"{_UI_ICONS['data']} Upload Trio VCFs", expanded=True):
             f_proband = st.file_uploader("👶 Proband (affected)", type=_UPLOAD_TYPES, key="trio_prob")
@@ -2836,7 +2836,7 @@ elif mode == "Trio Analysis":
             f_father  = st.file_uploader("<span class=\"material-symbols-outlined\">male</span> Father",              type=_UPLOAD_TYPES, key="trio_dad")
             use_demo  = st.checkbox("Use example for all (demo)", value=True)
 
-    st.title("'<span class="material-symbols-outlined">family_restroom</span> Trio Analysis' — De Novo & Recessive Variant Detection')
+    st.title('<span class="material-symbols-outlined">family_restroom</span> Trio Analysis — De Novo & Recessive Variant Detection')
     st.info("Upload VCFs for proband + both parents to identify **de novo**, "
             "**homozygous recessive**, and **compound heterozygous** variants.")
 
@@ -2859,7 +2859,7 @@ elif mode == "Trio Analysis":
               help="Two het variants in same gene from different parents")
 
     st.divider()
-    trio_tabs = st.tabs(['<span class="material-symbols-outlined">circle</span> De Novo', "🟠 Homozygous Recessive', "🟡 Compound Het"])
+    trio_tabs = st.tabs(['<span class="material-symbols-outlined">circle</span> De Novo', "🟠 Homozygous Recessive", "🟡 Compound Het"])
 
     with trio_tabs[0]:
         st.subheader(f"De Novo Variants ({trio_result['n_denovo']})")
@@ -2897,11 +2897,11 @@ elif mode == "Trio Analysis":
 elif mode == "Somatic (Tumor/Normal)":
 
     with st.sidebar:
-        st.markdown("#### <span class="material-symbols-outlined">tune</span> Tool Controls")
+        st.markdown('#### <span class="material-symbols-outlined">tune</span> Tool Controls')
         st.caption("Configure paired analysis inputs.")
         with st.expander(f"{_UI_ICONS['data']} Upload Paired VCFs", expanded=True):
-            f_tumor  = st.file_uploader('<span class="material-symbols-outlined">biotech</span> Tumor VCF',  type=_UPLOAD_TYPES, key="som_tumor')
-            f_normal = st.file_uploader('<span class="material-symbols-outlined">check_circle</span> Normal VCF', type=_UPLOAD_TYPES, key="som_normal')
+            f_tumor  = st.file_uploader('<span class="material-symbols-outlined">biotech</span> Tumor VCF',  type=_UPLOAD_TYPES, key="som_tumor")
+            f_normal = st.file_uploader('<span class="material-symbols-outlined">check_circle</span> Normal VCF', type=_UPLOAD_TYPES, key="som_normal")
             use_demo = st.checkbox("Use example for both (demo)", value=True)
 
     st.title("🧫 Somatic Variant Analysis — Tumor vs Normal")
@@ -2925,7 +2925,7 @@ elif mode == "Somatic (Tumor/Normal)":
     c4.metric("Germline (shared)", len(germline))
 
     st.divider()
-    som_tabs = st.tabs(['<span class="material-symbols-outlined">circle</span> Somatic Variants', '<span class="material-symbols-outlined">check_circle</span> Germline (shared)', '<span class="material-symbols-outlined">bar_chart</span> Comparison"])
+    som_tabs = st.tabs(['<span class="material-symbols-outlined">circle</span> Somatic Variants', '<span class="material-symbols-outlined">check_circle</span> Germline (shared)', '<span class="material-symbols-outlined">bar_chart</span> Comparison'])
     with som_tabs[0]:
         if somatic.empty:
             st.success("No somatic-only variants detected.")
@@ -2979,8 +2979,8 @@ elif mode == "Somatic (Tumor/Normal)":
 # MODE 5 — ADMIN CONSOLE
 # ═══════════════════════════════════════════════════════════════════════════════
 
-elif mode == "'<span class="material-symbols-outlined">handyman</span> Admin Console'":
-    st.title("'<span class="material-symbols-outlined">handyman</span> Admin Console'")
+elif mode == '<span class="material-symbols-outlined">handyman</span> Admin Console':
+    st.title('<span class="material-symbols-outlined">handyman</span> Admin Console')
     st.caption("Platform administration for organisations, teams, and individual users.")
 
     if auth_ctx.role != "admin":
@@ -2999,18 +2999,18 @@ elif mode == "'<span class="material-symbols-outlined">handyman</span> Admin Con
     c4.metric("Active Users", len(active_users))
 
     st.divider()
-    tabs = st.tabs(['<span class="material-symbols-outlined">group</span> Users & Roles', '<span class="material-symbols-outlined">business</span> Workspace Governance', '<span class="material-symbols-outlined">tune</span> Platform Settings', '<span class="material-symbols-outlined">push_pin</span> Admin Notes"])
+    tabs = st.tabs(['<span class="material-symbols-outlined">group</span> Users & Roles', '<span class="material-symbols-outlined">business</span> Workspace Governance', '<span class="material-symbols-outlined">tune</span> Platform Settings', '<span class="material-symbols-outlined">push_pin</span> Admin Notes'])
 
     with tabs[0]:
         st.markdown("### Create User Account")
 
         org_options = {"None": None}
         for org in orgs:
-            org_options[f"{org['name']} (#{org['id"]})"] = org["id"]
+            org_options[f"{org['name']} (#{org['id']})"] = org["id"]
 
         team_options = {"None": None}
         for team in teams:
-            team_options[f"{team['organization_name']} / {team['name']} (#{team['id"]})"] = team["id"]
+            team_options[f"{team['organization_name']} / {team['name']} (#{team['id']})"] = team["id"]
 
         with st.form("create_user_form"):
             new_username = st.text_input("Username", placeholder="e.g. team.lead")
@@ -3062,7 +3062,7 @@ elif mode == "'<span class="material-symbols-outlined">handyman</span> Admin Con
             st.dataframe(users_df[[c for c in ["id", "Username", "Full Name", "Role", "Organisation", "Team", "Active", "Created"] if c in users_df.columns]], width="stretch")
 
             user_labels = {
-                f"{u['username']} ({u['role"]})": u["id"]
+                f"{u['username']} ({u['role']})": u["id"]
                 for u in users
                 if u["id"] != auth_ctx.user_id
             }
@@ -3094,7 +3094,7 @@ elif mode == "'<span class="material-symbols-outlined">handyman</span> Admin Con
 
         st.divider()
         st.markdown("### Create Team")
-        org_lookup = {f"{o['name']} (#{o['id"]})": o["id"] for o in orgs}
+        org_lookup = {f"{o['name']} (#{o['id']})": o["id"] for o in orgs}
         if org_lookup:
             with st.form("create_team_form"):
                 selected_org_label = st.selectbox("Parent Organisation", list(org_lookup.keys()))
@@ -3170,7 +3170,7 @@ elif mode == "Batch Pipeline":
             do_vep_batch = st.checkbox("Generate VEP command plan", key="batch_vep_plan")
             include_fastq_pipeline = st.checkbox("Show FASTQ variant-calling workflow", key="batch_fastq_plan")
 
-    st.title("'<span class="material-symbols-outlined">inventory_2</span> Batch Pipeline'")
+    st.title('<span class="material-symbols-outlined">inventory_2</span> Batch Pipeline')
     st.info("Upload multiple VCF files. All will be filtered with the same settings "
             "and merged into a single annotated CSV download.")
     _render_automation_assistant(prefix="batch")
@@ -3185,7 +3185,7 @@ elif mode == "Batch Pipeline":
         if not include_fastq_pipeline and not do_vep_batch:
             st.stop()
 
-    if st.button('<span class="material-symbols-outlined">play_arrow</span> Run Batch Pipeline', type="primary'):
+    if st.button('<span class="material-symbols-outlined">play_arrow</span> Run Batch Pipeline', type="primary"):
         all_dfs = []
         progress = st.progress(0)
         status   = st.empty()
@@ -3203,7 +3203,7 @@ elif mode == "Batch Pipeline":
                 df_i["source_file"] = f.name
                 all_dfs.append(df_i)
             except Exception as exc:
-                st.warning(f'<span class="material-symbols-outlined'>warning</span> Skipped {f.name}: {exc}')
+                st.warning(f'<span class="material-symbols-outlined">warning</span> Skipped {f.name}: {exc}')
             progress.progress((i + 1) / len(batch_files))
 
         status.empty()
@@ -3212,7 +3212,7 @@ elif mode == "Batch Pipeline":
         if all_dfs:
             combined = pd.concat(all_dfs, ignore_index=True)
             combined = combined.drop(columns=["info_raw"], errors="ignore")
-            st.success(f'<span class="material-symbols-outlined'>check_circle</span> Processed {len(batch_files)} VCFs → {len(combined):,} total variants')
+            st.success(f'<span class="material-symbols-outlined">check_circle</span> Processed {len(batch_files)} VCFs → {len(combined):,} total variants')
 
             # Summary table
             summary = []
