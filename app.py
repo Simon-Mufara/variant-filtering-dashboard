@@ -1792,7 +1792,15 @@ _UPLOAD_TYPES = supported_extensions()
 
 if mode == "Single VCF":
 
-    main_start = st.empty()
+    st.markdown(
+        """
+        <div class="analysis-start-panel">
+            <h1>Variant Analysis Suite</h1>
+            <p>Use the sidebar to upload a VCF/MAF/TSV/CSV file, load a URL, or open a built-in example. Results will appear here after the data is loaded.</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
     with st.sidebar:
         st.markdown('#### Tool Controls')
@@ -1894,15 +1902,6 @@ if mode == "Single VCF":
                 st.warning("⚠️ Please provide both cluster path and sample identifier")
 
         if df_raw is None or df_raw.empty or "chrom" not in df_raw.columns:
-            main_start.markdown(
-                """
-                <div class="analysis-start-panel">
-                    <h1>Variant Analysis Suite</h1>
-                    <p>Upload a variant file from the sidebar, choose a built-in example, or load a URL to begin analysis.</p>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
             st.stop()
 
         with st.expander(
