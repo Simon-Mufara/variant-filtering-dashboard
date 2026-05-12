@@ -147,10 +147,10 @@ _UI_ICONS = {
     "app": "🧬",
     "mode": "🧭",
     "theme": "🎨",
-    "workspace": "Workspace",
-    "data": "Data",
-    "filter": "Filters",
-    "annotation": "Annotations",
+    "workspace": "🏢",
+    "data": "📁",
+    "filter": "⚙️",
+    "annotation": "🧪",
 }
 
 _MODE_DESCRIPTIONS = {
@@ -332,9 +332,31 @@ def _inject_theme_css(theme_name: str) -> None:
         <style>
           @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
           html, body, [class*="css"] {{ font-family: 'Inter', sans-serif; }}
-          .block-container {{ padding-top: 0.75rem; padding-bottom: 1rem; max-width: 1500px; }}
+          .stMain, main[data-testid="stMain"], [data-testid="stMain"] {{
+            background: {palette["page_bg"]} !important;
+            color: {palette["section_text"]} !important;
+          }}
+          .block-container {{
+            padding-top: 1.25rem !important;
+            padding-bottom: 2rem !important;
+            max-width: 1500px;
+            color: {palette["section_text"]} !important;
+            min-height: 80vh;
+          }}
+          .block-container h1,
+          .block-container h2,
+          .block-container h3,
+          .block-container h4,
+          .block-container h5,
+          .block-container h6,
+          .block-container p,
+          .block-container label,
+          .block-container span,
+          .block-container div {{
+            color: inherit;
+          }}
           [data-testid="stAppViewContainer"] {{
-            background: {palette["page_bg"]};
+            background: {palette["page_bg"]} !important;
           }}
           [data-testid="stHeader"] {{
             background: transparent;
@@ -461,6 +483,31 @@ def _inject_theme_css(theme_name: str) -> None:
 
           hr {{ border-color: {palette["divider"]}; }}
           .stAlert {{ border-radius: 8px; }}
+          .stAlert, [data-testid="stAlert"] {{
+            background: {palette["metric_bg"]} !important;
+            border: 1px solid {palette["metric_border"]} !important;
+            color: {palette["section_text"]} !important;
+          }}
+          .analysis-start-panel {{
+            background: {palette["metric_bg"]};
+            color: {palette["section_text"]};
+            border: 1px solid {palette["metric_border"]};
+            box-shadow: {palette["card_shadow"]};
+            border-radius: 12px;
+            padding: 1.25rem 1.35rem;
+            margin-top: 1rem;
+            max-width: 760px;
+          }}
+          .analysis-start-panel h1 {{
+            color: {palette["section_text"]};
+            font-size: 1.75rem;
+            margin: 0 0 .45rem 0;
+          }}
+          .analysis-start-panel p {{
+            color: {palette["sidebar_muted"]};
+            font-size: .98rem;
+            margin: 0;
+          }}
           .tier-high {{ color: #dc2626; font-weight: 700; }}
           .tier-medium {{ color: #ea580c; font-weight: 700; }}
           .tier-low {{ color: #16a34a; font-weight: 700; }}
@@ -1845,8 +1892,15 @@ if mode == "Single VCF":
                 st.warning("⚠️ Please provide both cluster path and sample identifier")
 
         if df_raw is None or df_raw.empty or "chrom" not in df_raw.columns:
-            st.title('Variant Analysis Suite')
-            st.info("Upload a variant file (VCF, MAF, TSV/CSV) or choose a built-in example to begin.")
+            st.markdown(
+                """
+                <div class="analysis-start-panel">
+                    <h1>Variant Analysis Suite</h1>
+                    <p>Upload a variant file from the sidebar, choose a built-in example, or load a URL to begin analysis.</p>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
             st.stop()
 
         with st.expander(
