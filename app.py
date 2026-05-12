@@ -1527,7 +1527,7 @@ set -euo pipefail
         with st.expander("🧾 CLI (click to show FASTQ pipeline)", expanded=False):
             st.code(fastq_pipeline, language="bash")
             st.download_button(
-                '<span class="material-symbols-outlined">download</span> Download FASTQ-to-VCF pipeline script",
+                '<span class="material-symbols-outlined">download</span> Download FASTQ-to-VCF pipeline script',
                 fastq_pipeline.encode(),
                 f"{sample_id.lower()}_fastq_to_vcf.sh",
                 "text/x-shellscript",
@@ -1556,7 +1556,7 @@ set -euo pipefail
         )
         if run_no_cli:
             st.info("In-app execution enabled: upload FASTA, FASTQ R1, and FASTQ R2, then click Run.")
-            if st.button('<span class="material-symbols-outlined">play_arrow</span> Run FASTQ pipeline in app", key=f"{prefix}_run_pipeline_btn", type="primary"):
+            if st.button('<span class="material-symbols-outlined">play_arrow</span> Run FASTQ pipeline in app', key=f"{prefix}_run_pipeline_btn", type="primary"):
                 progress_bar = st.progress(0.0)
                 status_box = st.empty()
                 stage_log = st.empty()
@@ -1566,7 +1566,7 @@ set -euo pipefail
                     pct = step / total if total else 0
                     progress_bar.progress(min(1.0, pct))
                     status_box.markdown(f"**Step {step}/{total}:** {label}")
-                    timeline.append(f'<span class="material-symbols-outlined">check_circle</span> {label}")
+                    timeline.append(f'<span class="material-symbols-outlined">check_circle</span> {label}')
                     stage_log.markdown("  \n".join(timeline))
 
                 with st.spinner("Running FASTQ pipeline in app (this may take a while)..."):
