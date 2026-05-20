@@ -106,7 +106,8 @@ def render_extraction_input(batch: Optional[BatchMetadata] = None) -> BatchMetad
         kit_template = st.selectbox(
             "Extraction Kit Template",
             ["None"] + list(EXTRACTION_KIT_TEMPLATES.keys()),
-            help="Select a predefined template to auto-fill parameters"
+            help="Select a predefined template to auto-fill parameters",
+            key="extr_kit_template"
         )
         if kit_template != "None":
             batch.extraction = EXTRACTION_KIT_TEMPLATES[kit_template]
@@ -116,47 +117,47 @@ def render_extraction_input(batch: Optional[BatchMetadata] = None) -> BatchMetad
             "Extraction Kit",
             value=batch.extraction.extraction_kit,
             placeholder="e.g., DNeasy Blood & Tissue Kit",
-            help="Name of the extraction kit used"
+            help="Name of the extraction kit used",
+            key="extr_kit_name"
         )
         
         batch.extraction.sample_type = st.selectbox(
             "Sample Type",
             ["Unknown", "Whole blood", "Tissue", "Cell line", "Plasma", "Saliva", "Buccal"],
             index=0 if batch.extraction.sample_type == "Unknown" else 
-                   ["Unknown", "Whole blood", "Tissue", "Cell line", "Plasma", "Saliva", "Buccal"].index(batch.extraction.sample_type)
+                   ["Unknown", "Whole blood", "Tissue", "Cell line", "Plasma", "Saliva", "Buccal"].index(batch.extraction.sample_type),
+            key="extr_sample_type"
         )
         
-        batch.extraction.extraction_date = st.date_input(
-            "Extraction Date",
-            value=datetime.now() if not batch.extraction.extraction_date else datetime.fromisoformat(batch.extraction.extraction_date)
-        ).isoformat() if st.session_state.get("_extract_date_set", False) or batch.extraction.extraction_date else None
-        
         # Trigger to set extraction date
-        if st.checkbox("Set extraction date", value=bool(batch.extraction.extraction_date)):
-            st.session_state["_extract_date_set"] = True
+        if st.checkbox("Set extraction date", value=bool(batch.extraction.extraction_date), key="extr_date_checkbox"):
             batch.extraction.extraction_date = st.date_input(
                 "Extraction Date",
-                value=datetime.now() if not batch.extraction.extraction_date else datetime.fromisoformat(batch.extraction.extraction_date)
+                value=datetime.now() if not batch.extraction.extraction_date else datetime.fromisoformat(batch.extraction.extraction_date),
+                key="extr_date_input"
             ).isoformat()
     
     with col2:
         batch.extraction.technician = st.text_input(
             "Technician",
             value=batch.extraction.technician,
-            placeholder="Operator name"
+            placeholder="Operator name",
+            key="extr_technician"
         )
         
         batch.extraction.storage_condition = st.selectbox(
             "Storage Condition",
             ["Unknown", "Room temperature", "-20°C", "-80°C", "Liquid nitrogen"],
             index=0 if batch.extraction.storage_condition == "Unknown" else
-                   ["Unknown", "Room temperature", "-20°C", "-80°C", "Liquid nitrogen"].index(batch.extraction.storage_condition)
+                   ["Unknown", "Room temperature", "-20°C", "-80°C", "Liquid nitrogen"].index(batch.extraction.storage_condition),
+            key="extr_storage_condition"
         )
         
         batch.extraction.freeze_thaw_cycles = st.number_input(
             "Freeze-Thaw Cycles",
             min_value=0, max_value=10, value=batch.extraction.freeze_thaw_cycles,
-            help="Number of freeze-thaw cycles (≤2 recommended)"
+            help="Number of freeze-thaw cycles (≤2 recommended)",
+            key="extr_freeze_thaw"
         )
     
     # Lysis parameters
@@ -166,19 +167,22 @@ def render_extraction_input(batch: Optional[BatchMetadata] = None) -> BatchMetad
         batch.extraction.lysis.buffer_type = st.text_input(
             "Lysis Buffer Type",
             value=batch.extraction.lysis.buffer_type,
-            placeholder="e.g., Tris-HCl"
+            placeholder="e.g., Tris-HCl",
+            key="lysis_buffer_type"
         )
     with col2:
         batch.extraction.lysis.incubation_temperature_c = st.number_input(
             "Temperature (°C)",
             value=batch.extraction.lysis.incubation_temperature_c or 56,
-            min_value=0, max_value=100
+            min_value=0, max_value=100,
+            key="lysis_temperature"
         )
     with col3:
         batch.extraction.lysis.incubation_duration_min = st.number_input(
             "Duration (min)",
             value=batch.extraction.lysis.incubation_duration_min or 10,
-            min_value=0
+            min_value=0,
+            key="lysis_duration"
         )
     
     # Protein digestion
@@ -188,25 +192,29 @@ def render_extraction_input(batch: Optional[BatchMetadata] = None) -> BatchMetad
         batch.extraction.protein_digestion.concentration_ug_ml = st.number_input(
             "Proteinase K (µg/mL)",
             value=batch.extraction.protein_digestion.concentration_ug_ml or 0.5,
-            min_value=0.0, step=0.1
+            min_value=0.0, step=0.1,
+            key="proteinase_k_conc"
         )
     with col2:
         batch.extraction.protein_digestion.incubation_temperature_c = st.number_input(
             "Temperature (°C)",
             value=batch.extraction.protein_digestion.incubation_temperature_c or 56,
-            min_value=0, max_value=100
+            min_value=0, max_value=100,
+            key="proteinase_k_temp"
         )
     with col3:
         batch.extraction.protein_digestion.incubation_duration_min = st.number_input(
             "Duration (min)",
             value=batch.extraction.protein_digestion.incubation_duration_min or 30,
-            min_value=0
+            min_value=0,
+            key="proteinase_k_duration"
         )
     with col4:
         batch.extraction.protein_digestion.enzyme_lot_number = st.text_input(
             "Enzyme Lot",
             value=batch.extraction.protein_digestion.enzyme_lot_number,
-            placeholder="e.g., P8107S"
+            placeholder="e.g., P8107S",
+            key="enzyme_lot"
         )
     
     # Alcohol purification
@@ -216,19 +224,22 @@ def render_extraction_input(batch: Optional[BatchMetadata] = None) -> BatchMetad
         batch.extraction.alcohol_purification.alcohol_type = st.selectbox(
             "Alcohol Type",
             ["Ethanol", "Isopropanol"],
-            index=0 if batch.extraction.alcohol_purification.alcohol_type == "Ethanol" else 1
+            index=0 if batch.extraction.alcohol_purification.alcohol_type == "Ethanol" else 1,
+            key="alcohol_type"
         )
     with col2:
         batch.extraction.alcohol_purification.concentration_percent = st.number_input(
             "Concentration (%)",
             value=batch.extraction.alcohol_purification.concentration_percent or 100.0,
-            min_value=0.0, max_value=100.0
+            min_value=0.0, max_value=100.0,
+            key="alcohol_concentration"
         )
     with col3:
         batch.extraction.alcohol_purification.wash_count = st.number_input(
             "Wash Count",
             value=batch.extraction.alcohol_purification.wash_count,
-            min_value=1, max_value=10
+            min_value=1, max_value=10,
+            key="alcohol_wash_count"
         )
     
     # Binding chemistry
@@ -237,7 +248,8 @@ def render_extraction_input(batch: Optional[BatchMetadata] = None) -> BatchMetad
         "Binding Method",
         ["Silica column", "Magnetic bead", "Other"],
         index=0 if batch.extraction.binding_chemistry.method == "Silica column" else
-               1 if batch.extraction.binding_chemistry.method == "Magnetic bead" else 2
+               1 if batch.extraction.binding_chemistry.method == "Magnetic bead" else 2,
+        key="binding_method"
     )
     batch.extraction.binding_chemistry.method = binding_method
     
@@ -245,19 +257,22 @@ def render_extraction_input(batch: Optional[BatchMetadata] = None) -> BatchMetad
         batch.extraction.binding_chemistry.column_type = st.text_input(
             "Column Type",
             value=batch.extraction.binding_chemistry.column_type,
-            placeholder="e.g., DNeasy spin column"
+            placeholder="e.g., DNeasy spin column",
+            key="column_type"
         )
     elif binding_method == "Magnetic bead":
         batch.extraction.binding_chemistry.magnetic_bead_type = st.text_input(
             "Magnetic Bead Type",
             value=batch.extraction.binding_chemistry.magnetic_bead_type,
-            placeholder="e.g., Dynabeads M-280"
+            placeholder="e.g., Dynabeads M-280",
+            key="magnetic_bead_type"
         )
     else:
         batch.extraction.binding_chemistry.custom_notes = st.text_area(
             "Method Notes",
             value=batch.extraction.binding_chemistry.custom_notes,
-            height=100
+            height=100,
+            key="binding_method_notes"
         )
     
     # Elution
@@ -267,19 +282,22 @@ def render_extraction_input(batch: Optional[BatchMetadata] = None) -> BatchMetad
         batch.extraction.elution.buffer_type = st.text_input(
             "Elution Buffer",
             value=batch.extraction.elution.buffer_type,
-            placeholder="e.g., TE buffer"
+            placeholder="e.g., TE buffer",
+            key="elution_buffer_type"
         )
     with col2:
         batch.extraction.elution.buffer_volume_ul = st.number_input(
             "Volume (µL)",
             value=batch.extraction.elution.buffer_volume_ul or 100,
-            min_value=0.0
+            min_value=0.0,
+            key="elution_volume"
         )
     with col3:
         batch.extraction.elution.elution_repetitions = st.number_input(
             "Repetitions",
             value=batch.extraction.elution.elution_repetitions,
-            min_value=1, max_value=5
+            min_value=1, max_value=5,
+            key="elution_repetitions"
         )
     
     # Post-extraction QC
@@ -290,35 +308,40 @@ def render_extraction_input(batch: Optional[BatchMetadata] = None) -> BatchMetad
             "260/280 Ratio",
             value=batch.extraction.qc.nanodrop_260_280 or 0.0,
             min_value=0.0, step=0.1,
-            help="Expect 1.7–2.0; <1.7 indicates protein contamination"
+            help="Expect 1.7–2.0; <1.7 indicates protein contamination",
+            key="qc_nanodrop_260_280"
         )
     with col2:
         batch.extraction.qc.nanodrop_260_230 = st.number_input(
             "260/230 Ratio",
             value=batch.extraction.qc.nanodrop_260_230 or 0.0,
             min_value=0.0, step=0.1,
-            help="Expect >2.0; <2.0 indicates salt contamination"
+            help="Expect >2.0; <2.0 indicates salt contamination",
+            key="qc_nanodrop_260_230"
         )
     with col3:
         batch.extraction.qc.qubit_concentration_ng_ul = st.number_input(
             "Qubit (ng/µL)",
             value=batch.extraction.qc.qubit_concentration_ng_ul or 0.0,
             min_value=0.0,
-            help="DNA concentration; expect ≥10 ng/µL"
+            help="DNA concentration; expect ≥10 ng/µL",
+            key="qc_qubit_concentration"
         )
     with col4:
         batch.extraction.qc.fragment_integrity_percent = st.number_input(
             "Fragment Integrity (%)",
             value=batch.extraction.qc.fragment_integrity_percent or 0.0,
             min_value=0.0, max_value=100.0,
-            help="Expect ≥80%; <80% indicates degradation"
+            help="Expect ≥80%; <80% indicates degradation",
+            key="qc_fragment_integrity"
         )
     
     batch.extraction.qc.qc_pass_fail = st.selectbox(
         "QC Pass/Fail",
         ["Unknown", "Pass", "Fail", "Warning"],
         index=0 if batch.extraction.qc.qc_pass_fail == "Unknown" else
-               ["Unknown", "Pass", "Fail", "Warning"].index(batch.extraction.qc.qc_pass_fail)
+               ["Unknown", "Pass", "Fail", "Warning"].index(batch.extraction.qc.qc_pass_fail),
+        key="extraction_qc_pass_fail"
     )
     
     # Flag abnormal values
@@ -359,45 +382,52 @@ def render_library_prep_input(batch: Optional[BatchMetadata] = None) -> BatchMet
         batch.library_prep.kit_name = st.text_input(
             "Library Kit Name",
             value=batch.library_prep.kit_name,
-            placeholder="e.g., Illumina TruSeq DNA"
+            placeholder="e.g., Illumina TruSeq DNA",
+            key="lib_kit_name"
         )
         
         batch.library_prep.kit_version = st.text_input(
             "Kit Version",
             value=batch.library_prep.kit_version,
-            placeholder="e.g., Standard"
+            placeholder="e.g., Standard",
+            key="lib_kit_version"
         )
         
         batch.library_prep.input_dna_amount_ng = st.number_input(
             "Input DNA Amount (ng)",
             value=batch.library_prep.input_dna_amount_ng or 0.0,
-            min_value=0.0
+            min_value=0.0,
+            key="lib_input_dna"
         )
     
     with col2:
         batch.library_prep.fragmentation_method = st.selectbox(
             "Fragmentation Method",
             ["Sonication", "Enzymatic", "Thermal", "None"],
-            index=0 if batch.library_prep.fragmentation_method in ["Sonication", "Enzymatic", "Thermal", "None"] else 0
+            index=0 if batch.library_prep.fragmentation_method in ["Sonication", "Enzymatic", "Thermal", "None"] else 0,
+            key="lib_fragmentation_method"
         )
         
         if batch.library_prep.fragmentation_method != "None":
             batch.library_prep.fragmentation_duration_sec = st.number_input(
                 "Fragmentation Duration (sec)",
                 value=batch.library_prep.fragmentation_duration_sec or 0.0,
-                min_value=0.0
+                min_value=0.0,
+                key="lib_fragmentation_duration"
             )
         
         batch.library_prep.target_fragment_size_bp = st.number_input(
             "Target Fragment Size (bp)",
             value=batch.library_prep.target_fragment_size_bp or 500,
-            min_value=0
+            min_value=0,
+            key="lib_target_fragment_size"
         )
         
         batch.library_prep.measured_fragment_size_bp = st.number_input(
             "Measured Fragment Size (bp)",
             value=batch.library_prep.measured_fragment_size_bp or 0,
-            min_value=0
+            min_value=0,
+            key="lib_measured_fragment_size"
         )
     
     # PCR parameters
@@ -407,20 +437,23 @@ def render_library_prep_input(batch: Optional[BatchMetadata] = None) -> BatchMet
         batch.library_prep.pcr_polymerase = st.text_input(
             "PCR Polymerase",
             value=batch.library_prep.pcr_polymerase,
-            placeholder="e.g., Q5 High-Fidelity"
+            placeholder="e.g., Q5 High-Fidelity",
+            key="lib_pcr_polymerase"
         )
     with col2:
         batch.library_prep.pcr_cycles = st.number_input(
             "PCR Cycles",
             value=batch.library_prep.pcr_cycles or 15,
             min_value=1, max_value=35,
-            help="Typical: 12–18; >25 risks amplification bias"
+            help="Typical: 12–18; >25 risks amplification bias",
+            key="lib_pcr_cycles"
         )
     with col3:
         batch.library_prep.adapter_barcode_kit = st.text_input(
             "Adapter/Barcode Kit",
             value=batch.library_prep.adapter_barcode_kit,
-            placeholder="e.g., NEXTflex"
+            placeholder="e.g., NEXTflex",
+            key="lib_adapter_barcode"
         )
     
     # Quality
@@ -431,19 +464,22 @@ def render_library_prep_input(batch: Optional[BatchMetadata] = None) -> BatchMet
             "Library Concentration (nM)",
             value=batch.library_prep.library_concentration_nm or 0.0,
             min_value=0.0,
-            help="Expect ≥2 nM"
+            help="Expect ≥2 nM",
+            key="lib_concentration_nm"
         )
     with col2:
         batch.library_prep.cleanup_bead_ratio = st.text_input(
             "Cleanup Bead Ratio",
             value=batch.library_prep.cleanup_bead_ratio,
-            placeholder="e.g., 1:1"
+            placeholder="e.g., 1:1",
+            key="lib_cleanup_bead_ratio"
         )
     with col3:
         batch.library_prep.library_normalization_method = st.selectbox(
             "Normalization",
             ["None", "Equimolar", "Weighted", "Other"],
-            index=0 if batch.library_prep.library_normalization_method == "None" else 1
+            index=0 if batch.library_prep.library_normalization_method == "None" else 1,
+            key="lib_normalization_method"
         )
     with col4:
         batch.library_prep.qc_pass_fail = st.selectbox(
@@ -499,44 +535,44 @@ def render_sequencing_input(batch: Optional[BatchMetadata] = None) -> BatchMetad
         batch.sequencing.instrument_model = st.text_input(
             "Instrument Model",
             value=batch.sequencing.instrument_model,
-            placeholder="e.g., NovaSeq 6000"
+            placeholder="e.g., NovaSeq 6000",
+            key="seq_instrument_model"
         )
         
         batch.sequencing.flowcell_id = st.text_input(
             "Flowcell ID",
             value=batch.sequencing.flowcell_id,
-            placeholder="e.g., H00WJG45V01"
+            placeholder="e.g., H00WJG45V01",
+            key="seq_flowcell_id"
         )
     
     with col2:
         batch.sequencing.read_length_bp = st.number_input(
             "Read Length (bp)",
             value=batch.sequencing.read_length_bp or 150,
-            min_value=0
+            min_value=0,
+            key="seq_read_length"
         )
         
         batch.sequencing.read_type = st.selectbox(
             "Read Type",
             ["Paired-end", "Single-end"],
-            index=0 if batch.sequencing.read_type == "Paired-end" else 1
+            index=0 if batch.sequencing.read_type == "Paired-end" else 1,
+            key="seq_read_type"
         )
         
         batch.sequencing.lane = st.text_input(
             "Lane",
             value=batch.sequencing.lane,
-            placeholder="e.g., 1"
+            placeholder="e.g., 1",
+            key="seq_lane"
         )
         
-        batch.sequencing.run_date = st.date_input(
-            "Run Date",
-            value=datetime.now() if not batch.sequencing.run_date else datetime.fromisoformat(batch.sequencing.run_date)
-        ).isoformat() if st.session_state.get("_seq_date_set", False) or batch.sequencing.run_date else None
-        
-        if st.checkbox("Set sequencing run date", value=bool(batch.sequencing.run_date)):
-            st.session_state["_seq_date_set"] = True
+        if st.checkbox("Set sequencing run date", value=bool(batch.sequencing.run_date), key="seq_date_checkbox"):
             batch.sequencing.run_date = st.date_input(
                 "Run Date",
-                value=datetime.now() if not batch.sequencing.run_date else datetime.fromisoformat(batch.sequencing.run_date)
+                value=datetime.now() if not batch.sequencing.run_date else datetime.fromisoformat(batch.sequencing.run_date),
+                key="seq_run_date"
             ).isoformat()
     
     # Sequencing depth
@@ -547,7 +583,8 @@ def render_sequencing_input(batch: Optional[BatchMetadata] = None) -> BatchMetad
             "Target Depth (Million reads)",
             value=batch.sequencing.sequencing_depth_target_million or 30.0,
             min_value=0.0,
-            help="WGS: ≥30M; WES: ≥100M; panels: ≥1000x"
+            help="WGS: ≥30M; WES: ≥100M; panels: ≥1000x",
+            key="seq_depth_target"
         )
     with col2:
         st.info("Actual depth will be measured from BAM file post-alignment")
@@ -559,23 +596,27 @@ def render_sequencing_input(batch: Optional[BatchMetadata] = None) -> BatchMetad
         batch.sequencing.basecalling_software = st.text_input(
             "Basecalling Software",
             value=batch.sequencing.basecalling_software,
-            placeholder="e.g., RTA3"
+            placeholder="e.g., RTA3",
+            key="seq_basecalling_software"
         )
         batch.sequencing.basecalling_version = st.text_input(
             "Basecalling Version",
             value=batch.sequencing.basecalling_version,
-            placeholder="e.g., 3.4.4"
+            placeholder="e.g., 3.4.4",
+            key="seq_basecalling_version"
         )
     with col2:
         batch.sequencing.demultiplexing_software = st.text_input(
             "Demultiplexing Software",
             value=batch.sequencing.demultiplexing_software,
-            placeholder="e.g., bcl2fastq2"
+            placeholder="e.g., bcl2fastq2",
+            key="seq_demultiplexing_software"
         )
         batch.sequencing.demultiplexing_version = st.text_input(
             "Demultiplexing Version",
             value=batch.sequencing.demultiplexing_version,
-            placeholder="e.g., 2.20"
+            placeholder="e.g., 2.20",
+            key="seq_demultiplexing_version"
         )
     
     # Operator
@@ -583,7 +624,8 @@ def render_sequencing_input(batch: Optional[BatchMetadata] = None) -> BatchMetad
     batch.sequencing.operator = st.text_input(
         "Operator Name",
         value=batch.sequencing.operator,
-        placeholder="Name of sequencing operator"
+        placeholder="Name of sequencing operator",
+        key="seq_operator"
     )
     
     return batch
@@ -771,10 +813,11 @@ def render_collapsible_batch_context() -> None:
                 "Batch ID",
                 value=batch.batch_id,
                 placeholder="e.g., BATCH-2026-05-12-001",
-                help="Unique identifier for this batch"
+                help="Unique identifier for this batch",
+                key="batch_id_input"
             )
         with col2:
-            if st.checkbox("Enable Full Pipeline Mode"):
+            if st.checkbox("Enable Full Pipeline Mode", key="enable_full_pipeline"):
                 st.session_state.batch_mode_enabled = True
                 st.success("✅ Full pipeline mode enabled")
         
@@ -804,13 +847,15 @@ def render_collapsible_batch_context() -> None:
                 "Overall Batch QC Status",
                 ["Unknown", "Pass", "Fail", "Conditional"],
                 index=0 if batch.qc_pass_overall == "Unknown" else
-                       ["Unknown", "Pass", "Fail", "Conditional"].index(batch.qc_pass_overall)
+                       ["Unknown", "Pass", "Fail", "Conditional"].index(batch.qc_pass_overall),
+                key="batch_qc_overall_status"
             )
             batch.operator_notes = st.text_area(
                 "Operator Notes",
                 value=batch.operator_notes,
                 height=150,
-                placeholder="Document any anomalies, special handling, or quality concerns..."
+                placeholder="Document any anomalies, special handling, or quality concerns...",
+                key="batch_operator_notes"
             )
             render_batch_consistency(batch)
         
