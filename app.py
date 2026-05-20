@@ -74,6 +74,14 @@ from utils.plots import (
     chromosome_plot, variant_type_plot, quality_distribution,
     depth_distribution, af_scatter, tstv_plot, positional_track, annotate_with_genes,
 )
+from utils.wet_lab_provenance import BatchMetadata
+from utils.batch_inference import DownstreamInferenceEngine, RiskSeverity
+from utils.streamlit_wet_lab_ui import (
+    initialize_batch_session_state, get_batch_from_session, save_batch_to_session,
+    render_collapsible_batch_context, render_batch_overview, render_wet_lab_risk_flags,
+    render_variant_wet_lab_context, render_batch_consistency, render_sample_timeline
+)
+
 APP_BUILD = "2026.03.22-professional-polish-v4"
 
 # Backward-compatible auth bindings (supports older deployed auth.py versions).
@@ -1962,6 +1970,17 @@ if mode == "Single VCF":
         st.markdown("---")
         st.markdown("**Sample metadata**")
         st.caption("Declare experimental conditions to enable adaptive QC")
+        
+        # Full pipeline mode toggle
+        full_pipeline_mode = st.checkbox(
+            "📊 Full Pipeline Mode",
+            value=st.session_state.get("full_pipeline_mode_single", False),
+            help="Enable comprehensive wet-lab provenance tracking and batch analysis"
+        )
+        st.session_state["full_pipeline_mode_single"] = full_pipeline_mode
+        
+        if full_pipeline_mode:
+            st.info("✅ Full Pipeline Mode enabled — comprehensive wet-lab metadata capture active")
 
         with st.expander("Experimental conditions", expanded=True):
             preservation = st.selectbox(
@@ -2001,6 +2020,10 @@ if mode == "Single VCF":
             )
 
     landing.empty()
+    
+    # ── Wet-lab batch context (if full pipeline mode enabled) ─────────────────
+    if full_pipeline_mode:
+        render_collapsible_batch_context()
 
     # ── Apply filters ─────────────────────────────────────────────────────────
     df = apply_filters(
@@ -2206,6 +2229,20 @@ if mode == "Single VCF":
                     st.caption("🔧 **Parameters adapted from declared metadata:**")
                     for adaptation in adaptive_params["adaptations"]:
                         st.markdown(f"- {adaptation}")
+        
+        # ── Wet-lab context panel (if full pipeline mode enabled) ──────────
+        if full_pipeline_mode:
+            st.divider()
+            batch = get_batch_from_session()
+            
+            with st.expander("🔬 Wet-Lab Provenance Context", expanded=True):
+                render_batch_overview(batch)
+                
+                # Display risk flags if any
+                flags = DownstreamInferenceEngine.infer_risks(batch)
+                if flags:
+                    st.divider()
+                    render_wet_lab_risk_flags(batch)
 
         # ── Overview charts ────────────────────────────────────────────────
         c1, c2 = st.columns(2)
@@ -3239,6 +3276,9 @@ elif mode == "Admin Console":
 
 elif mode == "Batch Pipeline":
 
+    # Initialize wet-lab batch session state
+    initialize_batch_session_state()
+    
     with st.sidebar:
         with st.expander('Pipeline Settings', expanded=True):
             min_qual_batch = st.slider("Min Quality", 0, 100, DEFAULT_MIN_QUAL, key="batch_qual")
@@ -3249,9 +3289,23 @@ elif mode == "Batch Pipeline":
             include_fastq_pipeline = st.checkbox("Show FASTQ variant-calling workflow", key="batch_fastq_plan")
 
     st.title('Batch Pipeline')
-    st.info("Upload multiple VCF files. All will be filtered with the same settings "
-            "and merged into a single annotated CSV download.")
+    st.info("Upload multiple VCF files with comprehensive wet-lab provenance tracking. "
+            "All files will be filtered with the same settings, annotated, and merged into a single deliverable.")
+    
+    # Full pipeline mode toggle
+    full_pipeline_batch = st.checkbox(
+        "✅ Enable Full Pipeline Mode (Wet-Lab Provenance)",
+        value=True,
+        help="Capture comprehensive wet-lab metadata for batch QC and downstream analysis"
+    )
+    
     _render_automation_assistant(prefix="batch")
+
+    # WET-LAB BATCH CONTEXT (Full Pipeline Mode)
+    if full_pipeline_batch:
+        st.divider()
+        render_collapsible_batch_context()
+        st.divider()
 
     batch_files = st.file_uploader("Upload VCF files (up to 20)",
                                    type=_UPLOAD_TYPES,
@@ -3267,6 +3321,30 @@ elif mode == "Batch Pipeline":
         all_dfs = []
         progress = st.progress(0)
         status   = st.empty()
+        
+        # Get batch metadata if full pipeline mode
+        batch_metadata = None
+        batch_risk_flags = []
+        batch_confidence_modifier = 1.0
+        
+        if full_pipeline_batch:
+            batch_metadata = get_batch_from_session()
+            batch_risk_flags = DownstreamInferenceEngine.infer_risks(batch_metadata)
+            batch_confidence_modifier = DownstreamInferenceEngine.compute_batch_confidence_modifier(batch_metadata)
+            
+            # Display batch summary
+            with st.expander("📊 Batch Context Summary", expanded=True):
+                render_batch_overview(batch_metadata)
+                
+                if batch_risk_flags:
+                    st.markdown("#### Risk Flags Summary")
+                    critical = sum(1 for f in batch_risk_flags if f.severity == RiskSeverity.CRITICAL)
+                    warning = sum(1 for f in batch_risk_flags if f.severity == RiskSeverity.WARNING)
+                    
+                    col1, col2, col3 = st.columns(3)
+                    col1.metric("🚨 Critical", critical)
+                    col2.metric("⚠️ Warning", warning)
+                    col3.metric("📊 Confidence Modifier", f"{batch_confidence_modifier:.2%}")
 
         for i, f in enumerate(batch_files):
             status.text(f"Processing {f.name} ({i+1}/{len(batch_files)})…")
@@ -3278,6 +3356,16 @@ elif mode == "Batch Pipeline":
                     df_i = parse_predictor_scores(df_i)
                 if do_acmg_batch:
                     df_i = classify_dataframe(df_i)
+                
+                # Add batch context columns if available
+                if batch_metadata:
+                    df_i["batch_id"] = batch_metadata.batch_id
+                    df_i["batch_date"] = batch_metadata.batch_date or ""
+                    df_i["extraction_kit"] = batch_metadata.extraction.extraction_kit
+                    df_i["library_kit"] = batch_metadata.library_prep.kit_name
+                    df_i["sequencing_platform"] = batch_metadata.sequencing.platform
+                    df_i["batch_confidence_modifier"] = batch_confidence_modifier
+                
                 df_i["source_file"] = f.name
                 all_dfs.append(df_i)
             except Exception as exc:
@@ -3305,10 +3393,41 @@ elif mode == "Batch Pipeline":
                     "Mean QUAL": s.get("mean_qual","—"),
                 })
             st.dataframe(pd.DataFrame(summary), width="stretch")
+            
+            # Batch context section if full pipeline
+            if full_pipeline_batch and batch_metadata:
+                st.divider()
+                st.markdown("### 📊 Batch-Level Quality Summary")
+                
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Total Variants", len(combined))
+                with col2:
+                    st.metric("Files Processed", len(batch_files))
+                with col3:
+                    st.metric("Batch Confidence", f"{batch_confidence_modifier:.2%}")
+                
+                if batch_risk_flags:
+                    st.markdown("#### Flagged Risk Items")
+                    for flag in batch_risk_flags[:5]:  # Show top 5
+                        severity_icon = "🚨" if flag.severity == RiskSeverity.CRITICAL else "⚠️"
+                        st.markdown(f"{severity_icon} **{flag.title}** — {flag.observed_cause[:60]}...")
 
             st.download_button('Download Combined CSV',
                                combined.to_csv(index=False).encode(),
                                "batch_combined_variants.csv", "text/csv")
+            
+            # Export batch metadata if available
+            if full_pipeline_batch and batch_metadata:
+                from utils.wet_lab_provenance import batch_to_json
+                batch_json = batch_to_json(batch_metadata)
+                st.download_button(
+                    'Download Batch Metadata (JSON)',
+                    batch_json.encode(),
+                    "batch_metadata.json",
+                    "application/json"
+                )
+            
             if do_vep_batch:
                 vep_plan = (
                     "# Run VEP for each filtered file in your batch\n"
