@@ -1975,7 +1975,8 @@ if mode == "Single VCF":
         full_pipeline_mode = st.checkbox(
             "📊 Full Pipeline Mode",
             value=st.session_state.get("full_pipeline_mode_single", False),
-            help="Enable comprehensive wet-lab provenance tracking and batch analysis"
+            help="Enable comprehensive wet-lab provenance tracking and batch analysis",
+            key="full_pipeline_mode_single_checkbox"
         )
         st.session_state["full_pipeline_mode_single"] = full_pipeline_mode
         
@@ -1986,13 +1987,15 @@ if mode == "Single VCF":
             preservation = st.selectbox(
                 "Preservation method",
                 ["Unknown", "Fresh", "Cryopreserved", "FFPE", "Snap-frozen", "RNAlater"],
-                help="How was the sample stored before extraction?"
+                help="How was the sample stored before extraction?",
+                key="single_preservation_method"
             )
 
             freeze_thaw = st.number_input(
                 "Freeze-thaw cycles",
                 min_value=0, max_value=10, value=0,
-                help="Number of times the sample was thawed"
+                help="Number of times the sample was thawed",
+                key="single_freeze_thaw_cycles"
             )
 
             rin_score = st.slider(
@@ -2004,19 +2007,22 @@ if mode == "Single VCF":
             library_batch = st.text_input(
                 "Library prep batch ID",
                 placeholder="e.g. BATCH-2026-05-12",
-                help="Used to detect and correct batch effects"
+                help="Used to detect and correct batch effects",
+                key="single_library_batch_id"
             )
 
             seq_depth_target = st.number_input(
                 "Target reads per sample (M)",
                 min_value=0.0, value=30.0,
-                help="Sequencing depth aimed for in this run"
+                help="Sequencing depth aimed for in this run",
+                key="single_seq_depth_target"
             )
 
             seq_depth_actual = st.number_input(
                 "Actual reads obtained (M)",
                 min_value=0.0, value=0.0,
-                help="Leave 0 if not yet known"
+                help="Leave 0 if not yet known",
+                key="single_seq_depth_actual"
             )
 
     landing.empty()
